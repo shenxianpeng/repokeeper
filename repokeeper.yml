@@ -1,0 +1,19 @@
+# repokeeper.yml — place this in the root of each repo you want to enable
+# RepoKeeper will use these settings when implementing issues.
+
+maintainer: shenxianpeng
+
+style:
+  # Passed to the agent as a hint. Be specific about your preferences.
+  code_style: |
+    Follow existing code style exactly.
+    Use type hints in Python.
+    Keep functions small and focused.
+    No unnecessary blank lines or extra comments.
+
+agent:
+  # DeepSeek model to use. Options: deepseek-chat, deepseek-reasoner
+  model: deepseek-chat
+
+  # Set to false to disable the agent for this repo without removing the workflow.
+  implement: true

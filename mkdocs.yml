@@ -1,0 +1,72 @@
+# RepoKeeper Documentation
+
+site_name: RepoKeeper
+site_description: AI-powered open source maintainer agent
+site_author: RepoKeeper Team
+repo_url: https://github.com/shenxianpeng/repokeeper
+edit_uri: blob/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - setup.md
+    - quick-start.md
+  - Modules:
+    - Module 1 - Community Radar: module-1-radar.md
+    - Module 2 - Daily Patrol: module-2-patrol.md
+    - Module 3 - Implementation Agent: module-3-agent.md
+    - Module 4 - Maintainer Profile: module-4-profile.md
+  - Reference:
+    - Profile Schema: reference/profile-schema.md
+    - Environment Variables: reference/env-vars.md
+    - GitHub Actions: reference/github-actions.md
+
+markdown_extensions:
+  - toc:
+      permalink: "🔗"
+  - attr_list
+  - def_list
+  - tables
+  - pymdownx.highlight:
+      use_pygments: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - footnotes
+
+plugins:
+  - search
+
+copyright: Copyright &copy; 2024 RepoKeeper · AI-powered open source maintainer

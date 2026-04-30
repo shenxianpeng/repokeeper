@@ -1,0 +1,53 @@
+name: RepoKeeper Community Radar
+
+on:
+  schedule:
+    # Runs every 3 hours during business days
+    - cron: '0 */3 * * 1-5'
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      discussions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install openai PyGithub pyyaml
+
+      - name: Run Community Radar
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RKP_SMTP_HOST: ${{ secrets.RKP_SMTP_HOST || '' }}
+          RKP_SMTP_PORT: ${{ secrets.RKP_SMTP_PORT || '587' }}
+          RKP_SMTP_USER: ${{ secrets.RKP_SMTP_USER || '' }}
+          RKP_SMTP_PASS: ${{ secrets.RKP_SMTP_PASS || '' }}
+          RKP_TELEGRAM_CHAT_ID: ${{ secrets.RKP_TELEGRAM_CHAT_ID || '' }}
+        run: |
+          python -c "
+          import os, sys
+          sys.path.insert(0, 'src')
+          from github import Github
+          from openai import OpenAI
+          from repokeeper.radar import run_radar
+          from repokeeper.profile import load_profile
+
+          profile = load_profile()
+          gh = Github(os.environ['GITHUB_TOKEN'])
+          llm = OpenAI(
+              api_key=os.environ['DEEPSEEK_API_KEY'],
+              base_url='https://api.deepseek.com',
+          )
+          report = run_radar(gh, llm, os.environ['GITHUB_REPOSITORY'], profile)
+          print(f'Radar: {len(report.hits)} actionable hits found')
+          "

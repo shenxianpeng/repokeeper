@@ -1,19 +1,88 @@
-# repokeeper.yml — place this in the root of each repo you want to enable
-# RepoKeeper will use these settings when implementing issues.
+# RepoKeeper Maintainer Profile
+# ================================
+# This YAML describes your preferences as a maintainer.
+# All RepoKeeper modules (Radar, Patrol, Agent) respect these settings.
+#
+# Profile layers (later overrides earlier):
+#   1. Built-in defaults
+#   2. ~/.repokeeper/global.yml  (your global preferences)
+#   3. repokeeper.yml             (this file, per-repo)
+#   4. RKP_* environment variables
+#
+# Docs: https://shenxianpeng.github.io/repokeeper
 
 maintainer: shenxianpeng
 
+# ── Communication tone ──
+tone:
+  language: en              # en | zh | auto
+  style: friendly           # friendly | formal | minimal
+  emoji: true
+  closing: "happy to help"
+
+# ── Code style ──
 style:
-  # Passed to the agent as a hint. Be specific about your preferences.
   code_style: |
     Follow existing code style exactly.
     Use type hints in Python.
     Keep functions small and focused.
     No unnecessary blank lines or extra comments.
+  testing: pytest
+  linting: true
+  formatting: ruff
 
+# ── PR standards ──
+pr:
+  min_tests: true
+  max_files_per_pr: 15
+  require_changelog: false
+  auto_merge: false
+  review_required: true
+
+# ── Tech stack ──
+tech:
+  preferred:
+    - python
+    - fastapi
+  avoid: []
+  target_python: "3.11"
+  target_node: "20"
+
+# ── Notifications ──
+notifications:
+  email: ""
+  telegram: ""
+  wechat: ""
+  daily_summary: true
+  urgent_only: false
+
+# ── Agent ──
 agent:
-  # DeepSeek model to use. Options: deepseek-chat, deepseek-reasoner
-  model: deepseek-chat
-
-  # Set to false to disable the agent for this repo without removing the workflow.
+  model: deepseek-chat       # deepseek-chat | deepseek-reasoner | gpt-4o
   implement: true
+  max_context_files: 40
+  temperature: 0.1
+  skip_keywords:
+    - "needs design"
+    - "breaking change"
+
+# ── Community Radar ──
+radar:
+  enabled: true
+  keywords:
+    - bug
+    - crash
+    - security
+    - vulnerability
+    - performance
+    - feature request
+  confidence_threshold: 0.7
+  auto_create_issue: false
+
+# ── Daily Patrol ──
+patrol:
+  enabled: true
+  schedule: "0 8 * * 1-5"   # 8am UTC, Mon-Fri
+  auto_upgrade_deps: true
+  stale_days: 90
+  ci_auto_fix: true

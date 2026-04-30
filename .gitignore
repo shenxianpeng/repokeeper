@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Docs build output
+site/
+
+# IDE
+.idea/
+.vscode/
+*.swp

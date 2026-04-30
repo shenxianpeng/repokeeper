@@ -1,0 +1,64 @@
+name: RepoKeeper Daily Patrol
+
+on:
+  schedule:
+    # Runs every weekday at 8am UTC
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  patrol:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      pull-requests: write
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install openai PyGithub pyyaml
+
+      - name: Run Daily Patrol
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python -c "
+          import os, sys
+          sys.path.insert(0, 'src')
+          from github import Github
+          from openai import OpenAI
+          from repokeeper.patrol import run_patrol, generate_health_summary
+          from repokeeper.profile import load_profile
+
+          profile = load_profile()
+          gh = Github(os.environ['GITHUB_TOKEN'])
+          llm = OpenAI(
+              api_key=os.environ['DEEPSEEK_API_KEY'],
+              base_url='https://api.deepseek.com',
+          )
+          report = run_patrol(gh, llm, os.environ['GITHUB_REPOSITORY'], profile)
+          summary = generate_health_summary(report, profile)
+
+          # Save summary for potential notification
+          with open('patrol-summary.md', 'w') as f:
+              f.write(summary)
+
+          print(f'Patrol: health={report.health_score}/100, '
+                f'{len(report.outdated_deps)} outdated deps, '
+                f'{len(report.ci_failures)} CI failures, '
+                f'{len(report.stale_issues)} stale issues')
+          "
+
+      - name: Upload patrol summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: patrol-summary
+          path: patrol-summary.md

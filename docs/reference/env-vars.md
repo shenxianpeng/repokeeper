@@ -9,6 +9,7 @@ profile settings at runtime.
 |----------|---------|----------|
 | `DEEPSEEK_API_KEY` | DeepSeek API key for AI features | Yes |
 | `GITHUB_TOKEN` | GitHub API access (auto-provided by Actions) | Yes |
+| `REPOKEEPER_GITHUB_TOKEN` | Optional PAT used before `GITHUB_TOKEN` for PR creation | No |
 | `GITHUB_REPOSITORY` | Repository slug `owner/repo` (auto-provided) | Yes |
 | `ISSUE_NUMBER` | Issue number for Implementation Agent | For Agent only |
 
@@ -96,7 +97,7 @@ Alternatively, use `RKP_TELEGRAM_CHAT_ID` and put the bot token in the profile.
 # .github/workflows/repokeeper.yml
 env:
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
   # Override profile settings
   RKP_AGENT_MODEL: ${{ secrets.RKP_AGENT_MODEL || 'deepseek-chat' }}
   RKP_RADAR_CONFIDENCE_THRESHOLD: '0.8'

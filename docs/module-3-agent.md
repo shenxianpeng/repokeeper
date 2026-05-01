@@ -57,6 +57,11 @@ The GitHub Action listens for:
 The workflow also checks access: only `OWNER`, `MEMBER`, or `COLLABORATOR` can
 trigger via comment.
 
+For PR creation, the default `GITHUB_TOKEN` needs repository Actions permission
+to create pull requests. If your repository or organization disables that
+permission, set `REPOKEEPER_GITHUB_TOKEN` to a token with contents and pull
+request write access.
+
 ### Step 2: Skip Checks
 
 Before doing anything expensive, the agent checks:

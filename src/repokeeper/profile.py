@@ -19,7 +19,6 @@ from typing import Any
 
 import yaml
 
-
 # ─── Default profile ──────────────────────────────────────────────────────────
 
 DEFAULT_PROFILE: dict[str, Any] = {

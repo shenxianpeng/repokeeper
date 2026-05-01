@@ -9,9 +9,6 @@ on:
 jobs:
   repokeeper:
     runs-on: ubuntu-latest
-    # Trigger conditions:
-    # 1. Comment "@repokeeper go" on an issue (not a PR), by repo members only
-    # 2. Issue labeled with "agent-todo"
     if: |
       (
         github.event_name == 'issue_comment' &&
@@ -40,8 +37,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install -e .
+      - name: Install RepoKeeper
+        run: pip install repokeeper
 
       - name: Run RepoKeeper Agent
         env:

@@ -2,9 +2,8 @@ name: RepoKeeper Community Radar
 
 on:
   schedule:
-    # Runs every 3 hours during business days
     - cron: '0 */3 * * 1-5'
-  workflow_dispatch:  # manual trigger
+  workflow_dispatch:
 
 jobs:
   radar:
@@ -20,8 +19,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install -e .
+      - name: Install RepoKeeper
+        run: pip install repokeeper
 
       - name: Run Community Radar
         env:

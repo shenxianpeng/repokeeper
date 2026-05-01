@@ -57,8 +57,8 @@ permissions:
 
 1. **Checkout** — clone the repository with full history
 2. **Setup Python** — install Python 3.11
-3. **Install dependencies** — `pip install openai PyGithub pyyaml`
-4. **Run agent** — execute `.github/repokeeper/agent.py`
+3. **Install RepoKeeper** — `pip install repokeeper` or `pip install -e .`
+4. **Run agent** — execute `repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"`
 
 ### Required Secrets
 
@@ -66,6 +66,13 @@ permissions:
 |--------|----------|---------|
 | `DEEPSEEK_API_KEY` | Yes | AI model API key |
 | `LLM_BASE_URL` | No | Custom LLM endpoint |
+| `REPOKEEPER_GITHUB_TOKEN` | No | PAT fallback if `GITHUB_TOKEN` cannot create PRs |
+
+!!! note "Pull request permissions"
+    For the default `GITHUB_TOKEN`, enable **Settings → Actions → General →
+    Allow GitHub Actions to create and approve pull requests**. If that is not
+    allowed in your repository or organization, create a `REPOKEEPER_GITHUB_TOKEN`
+    secret with contents and pull request write access.
 
 ## Workflow: Community Radar
 
@@ -93,8 +100,8 @@ permissions:
 
 1. Checkout repository
 2. Setup Python 3.11
-3. Install dependencies
-4. Run radar scan
+3. Install RepoKeeper
+4. Run `repokeeper radar`
 
 ### Required Secrets
 
@@ -132,8 +139,8 @@ permissions:
 
 1. Checkout repository
 2. Setup Python 3.11
-3. Install dependencies
-4. Run patrol scan
+3. Install RepoKeeper
+4. Run `repokeeper patrol --summary`
 5. Upload patrol summary as artifact
 
 ### Artifacts
@@ -143,29 +150,27 @@ artifact for later review.
 
 ## Adding to Your Repository
 
-### Option 1: Copy from this repo
+### Option 1: Generate from the CLI
+
+```bash
+pip install repokeeper
+repokeeper init --workflows
+```
+
+### Option 2: Copy from this repo
 
 ```bash
 cp -r repokeeper/.github/workflows your-repo/.github/
-cp repokeeper/.github/repokeeper/agent.py your-repo/.github/repokeeper/
-cp -r repokeeper/src your-repo/src/
+cp repokeeper/repokeeper.yml your-repo/repokeeper.yml
 ```
 
-### Option 2: Use as a submodule
+### Option 3: Use as a submodule
 
 ```bash
 git submodule add https://github.com/shenxianpeng/repokeeper .github/repokeeper-src
 ```
 
 Then point your workflow to the submodule path.
-
-### Option 3: Install via pip
-
-```bash
-pip install repokeeper
-```
-
-And reference the installed package in your workflows.
 
 ## Customizing Schedules
 

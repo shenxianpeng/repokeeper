@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -152,7 +153,7 @@ def scan_discussions(
     try:
         # GitHub Discussions require GraphQL API
         owner, name = repo.split("/")
-        query = """
+        _query = """
         query($owner: String!, $name: String!, $first: Int!) {
           repository(owner: $owner, name: $name) {
             discussions(first: $first, orderBy: {field: UPDATED_AT, direction: DESC}) {

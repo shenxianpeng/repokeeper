@@ -1,5 +1,10 @@
 # RepoKeeper 🤖
 
+[![CI](https://github.com/shenxianpeng/repokeeper/actions/workflows/ci.yml/badge.svg)](https://github.com/shenxianpeng/repokeeper/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/shenxianpeng/repokeeper/branch/main/graph/badge.svg)](https://codecov.io/gh/shenxianpeng/repokeeper)
+[![PyPI](https://img.shields.io/pypi/v/repokeeper.svg)](https://pypi.org/project/repokeeper/)
+[![Python](https://img.shields.io/pypi/pyversions/repokeeper.svg)](https://pypi.org/project/repokeeper/)
+
 **AI-powered open source maintainer agent.**
 
 RepoKeeper automates the tedious parts of open source maintenance:
@@ -18,6 +23,18 @@ profile that describes your maintainer preferences.
 
 ## Quick Start
 
+Install the CLI:
+
+```bash
+pip install repokeeper
+```
+
+Create a maintainer profile:
+
+```bash
+repokeeper init --workflows
+```
+
 ```yaml
 # repokeeper.yml — place this in any repo
 maintainer: your-github-username
@@ -34,6 +51,15 @@ agent:
 
 Then label an issue `agent-todo` or comment `@repokeeper go`.
 
+You can also run modules directly:
+
+```bash
+repokeeper profile validate
+repokeeper radar --repo owner/repo
+repokeeper patrol --repo owner/repo --summary
+repokeeper agent --repo owner/repo --issue 42
+```
+
 ## Documentation
 
 Full docs: [https://shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.io/repokeeper)
@@ -49,6 +75,10 @@ Full docs: [https://shenxianpeng.github.io/repokeeper](https://shenxianpeng.gith
 - Python 3.11+
 - GitHub Actions enabled
 - DeepSeek API key (or any OpenAI-compatible API)
+
+For the Implementation Agent, enable **Settings → Actions → General → Allow
+GitHub Actions to create and approve pull requests**, or provide a
+`REPOKEEPER_GITHUB_TOKEN` secret with write access to contents and pull requests.
 
 ## License
 

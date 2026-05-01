@@ -12,15 +12,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 from .profile import load_profile
 
@@ -142,7 +139,6 @@ def check_python_deps(manifest_path: Path) -> list[DepCheck]:
         List of DepCheck results.
     """
     results: list[DepCheck] = []
-    manifest_type = MANIFEST_PATTERNS.get(manifest_path.name, "pip")
 
     try:
         # Try pip-audit first (best for security vulns + outdated checks)
@@ -291,7 +287,7 @@ def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -
     failures: list[CIFailure] = []
 
     if since is None:
-        since = datetime.now(timezone.utc) - timedelta(days=1)
+        since = datetime.now(UTC) - timedelta(days=1)
 
     try:
         gh_repo = gh_client.get_repo(repo)
@@ -300,7 +296,7 @@ def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -
         for wf in workflows:
             runs = wf.get_runs(branch=gh_repo.default_branch)
             for run in runs:
-                if run.created_at.replace(tzinfo=timezone.utc) < since:
+                if run.created_at.replace(tzinfo=UTC) < since:
                     continue
                 if run.conclusion in ("failure", "cancelled", "timed_out"):
                     failures.append(CIFailure(
@@ -357,7 +353,7 @@ def diagnose_ci_failure(
         # Fetch logs (GitHub API gives us job logs)
         owner, repo_name = failure.run_url.split("/")[-4:-2] if "/" in failure.run_url else ("", "")
         # Actually get the run object
-        gh_repo = gh_client.get_repo(f"{owner}/{repo_name}")
+        gh_client.get_repo(f"{owner}/{repo_name}")
         # This would use the checks API - simplified here
         log_snippet = f"Run ID: {failure.run_id}\nWorkflow: {failure.workflow_name}\nConclusion: {failure.conclusion}\nSee: {failure.run_url}"
         failure.log_snippet = log_snippet
@@ -410,7 +406,7 @@ def scan_stale_issues(
         List of StaleIssue objects.
     """
     stale: list[StaleIssue] = []
-    cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
+    cutoff = datetime.now(UTC) - timedelta(days=stale_days)
 
     try:
         gh_repo = gh_client.get_repo(repo)
@@ -422,11 +418,11 @@ def scan_stale_issues(
             if len(stale) >= max_issues:
                 break
 
-            updated = issue.updated_at.replace(tzinfo=timezone.utc) if issue.updated_at else issue.created_at.replace(tzinfo=timezone.utc)
+            updated = issue.updated_at.replace(tzinfo=UTC) if issue.updated_at else issue.created_at.replace(tzinfo=UTC)
             if updated > cutoff:
                 continue
 
-            days = (datetime.now(timezone.utc) - updated).days
+            days = (datetime.now(UTC) - updated).days
             stale.append(StaleIssue(
                 number=issue.number,
                 title=issue.title,
@@ -573,10 +569,10 @@ def generate_health_summary(report: PatrolReport, profile: dict) -> str:
 
     lines = [
         f"# 📋 Daily Patrol Report — [{report.repo}](https://github.com/{report.repo})",
-        f"",
+        "",
         f"**Scanned:** {report.scanned_at.strftime('%Y-%m-%d %H:%M UTC')}",
         f"**Health Score:** {score}/100 {label}",
-        f"",
+        "",
     ]
 
     # Dependencies
@@ -601,7 +597,7 @@ def generate_health_summary(report: PatrolReport, profile: dict) -> str:
             if ci.suggested_fix:
                 lines.append(f"- **Suggested Fix:** {ci.suggested_fix}")
             if ci.auto_fixable:
-                lines.append(f"- **Auto-fixable:** ✅ Yes")
+                lines.append("- **Auto-fixable:** ✅ Yes")
             lines.append("")
 
     # Stale issues
@@ -671,7 +667,6 @@ def run_patrol(
 
     model = profile.get("agent", {}).get("model", "deepseek-chat")
     stale_days = patrol_config.get("stale_days", 90)
-    auto_upgrade = patrol_config.get("auto_upgrade_deps", True)
     ci_auto_fix = patrol_config.get("ci_auto_fix", True)
 
     rp = repo_path or Path(".")

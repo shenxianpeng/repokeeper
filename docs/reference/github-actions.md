@@ -56,7 +56,7 @@ permissions:
 ### Steps
 
 1. **Checkout** — clone the repository with full history
-2. **Setup Python** — install Python 3.11
+2. **Setup Python** — install Python 3.10+
 3. **Install RepoKeeper** — `pip install repokeeper` or `pip install -e .`
 4. **Run agent** — execute `repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"`
 
@@ -99,7 +99,7 @@ permissions:
 ### Steps
 
 1. Checkout repository
-2. Setup Python 3.11
+2. Setup Python 3.10+
 3. Install RepoKeeper
 4. Run `repokeeper radar`
 
@@ -138,7 +138,7 @@ permissions:
 ### Steps
 
 1. Checkout repository
-2. Setup Python 3.11
+2. Setup Python 3.10+
 3. Install RepoKeeper
 4. Run `repokeeper patrol --summary`
 5. Upload patrol summary as artifact

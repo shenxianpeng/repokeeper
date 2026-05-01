@@ -167,7 +167,7 @@ tech:
     - jquery
     - php
     - mongodb
-  target_python: "3.11"
+  target_python: "3.10"
   target_node: "20"
 ```
 
@@ -175,7 +175,7 @@ tech:
 |-------|------|---------|-------------|
 | `preferred` | list | `[]` | Preferred tech stack |
 | `avoid` | list | `[]` | Tech to avoid |
-| `target_python` | string | `"3.11"` | Minimum Python version |
+| `target_python` | string | `"3.10"` | Minimum Python version |
 | `target_node` | string | `"20"` | Minimum Node.js version |
 
 ### `notifications` — Alert Channels
@@ -358,7 +358,7 @@ tech:
   avoid:
     - jquery
     - mongodb
-  target_python: "3.11"
+  target_python: "3.10"
   target_node: "20"
 
 notifications:

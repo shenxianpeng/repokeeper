@@ -2,7 +2,7 @@
 
 site_name: RepoKeeper
 site_description: AI-powered open source maintainer agent
-site_author: RepoKeeper Team
+site_author: Xianpeng Shen
 repo_url: https://github.com/shenxianpeng/repokeeper
 edit_uri: blob/main/docs/
 
@@ -69,4 +69,4 @@ markdown_extensions:
 plugins:
   - search
 
-copyright: Copyright &copy; 2024 RepoKeeper · AI-powered open source maintainer
+copyright: Copyright &copy; 2026 Xianpeng Shen

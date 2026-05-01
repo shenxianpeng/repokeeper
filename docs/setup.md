@@ -4,7 +4,7 @@ This guide walks through installing and configuring RepoKeeper.
 
 ## Prerequisites
 
-- **Python 3.11+**
+- **Python 3.10+**
 - **GitHub repository** with Actions enabled
 - **DeepSeek API key** ([deepseek.com](https://platform.deepseek.com/api_keys)) — or any OpenAI-compatible API
 

@@ -52,7 +52,7 @@ Complete JSON Schema for `repokeeper.yml`.
 |-----|------|----------|---------|--------------|
 | `preferred` | list[string] | No | `[]` | Any tech names |
 | `avoid` | list[string] | No | `[]` | Any tech names |
-| `target_python` | string | No | `"3.11"` | Python version string |
+| `target_python` | string | No | `"3.10"` | Python version string |
 | `target_node` | string | No | `"20"` | Node.js version string |
 
 ## `notifications`

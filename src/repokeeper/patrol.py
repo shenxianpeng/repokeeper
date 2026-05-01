@@ -15,7 +15,7 @@ import logging
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -287,7 +287,7 @@ def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -
     failures: list[CIFailure] = []
 
     if since is None:
-        since = datetime.now(UTC) - timedelta(days=1)
+        since = datetime.now(timezone.utc) - timedelta(days=1)
 
     try:
         gh_repo = gh_client.get_repo(repo)
@@ -296,7 +296,7 @@ def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -
         for wf in workflows:
             runs = wf.get_runs(branch=gh_repo.default_branch)
             for run in runs:
-                if run.created_at.replace(tzinfo=UTC) < since:
+                if run.created_at.replace(tzinfo=timezone.utc) < since:
                     continue
                 if run.conclusion in ("failure", "cancelled", "timed_out"):
                     failures.append(CIFailure(
@@ -406,7 +406,7 @@ def scan_stale_issues(
         List of StaleIssue objects.
     """
     stale: list[StaleIssue] = []
-    cutoff = datetime.now(UTC) - timedelta(days=stale_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
 
     try:
         gh_repo = gh_client.get_repo(repo)
@@ -418,11 +418,11 @@ def scan_stale_issues(
             if len(stale) >= max_issues:
                 break
 
-            updated = issue.updated_at.replace(tzinfo=UTC) if issue.updated_at else issue.created_at.replace(tzinfo=UTC)
+            updated = issue.updated_at.replace(tzinfo=timezone.utc) if issue.updated_at else issue.created_at.replace(tzinfo=timezone.utc)
             if updated > cutoff:
                 continue
 
-            days = (datetime.now(UTC) - updated).days
+            days = (datetime.now(timezone.utc) - updated).days
             stale.append(StaleIssue(
                 number=issue.number,
                 title=issue.title,

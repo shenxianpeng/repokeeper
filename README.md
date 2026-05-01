@@ -72,7 +72,7 @@ Full docs: [https://shenxianpeng.github.io/repokeeper](https://shenxianpeng.gith
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.10+
 - GitHub Actions enabled
 - DeepSeek API key (or any OpenAI-compatible API)
 

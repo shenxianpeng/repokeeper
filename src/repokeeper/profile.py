@@ -53,7 +53,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "tech": {
         "preferred": [],              # e.g. ["python", "fastapi", "postgresql"]
         "avoid": [],                  # e.g. ["jquery", "php"]
-        "target_python": "3.11",      # minimum Python version
+        "target_python": "3.10",      # minimum Python version
         "target_node": "20",          # minimum Node.js version
     },
     # ── Notifications ──
@@ -228,7 +228,7 @@ maintainer: your-github-username
 #     - fastapi
 #   avoid:                    # tech you don't want to touch
 #     - jquery
-#   target_python: "3.11"
+#   target_python: "3.10"
 #   target_node: "20"
 
 # ── Notifications ──

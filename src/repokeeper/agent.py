@@ -353,6 +353,25 @@ Closes #{issue_data['number']}
     return pr.html_url
 
 
+def strip_blocked_paths(implementation: dict) -> list[str]:
+    """Remove blocked paths from implementation in-place.
+
+    Args:
+        implementation: LLM response dict (mutated).
+
+    Returns:
+        List of stripped path names (for warnings).
+    """
+    stripped: list[str] = []
+    for section in ("changes", "new_files"):
+        section_dict = implementation.get(section, {})
+        blocked = [k for k in section_dict if k.startswith(BLOCKED_PREFIXES)]
+        for k in blocked:
+            del section_dict[k]
+            stripped.append(k)
+    return stripped
+
+
 def validate_implementation(implementation: dict, profile: dict) -> list[str]:
     """Validate an implementation against profile constraints.
 
@@ -372,12 +391,6 @@ def validate_implementation(implementation: dict, profile: dict) -> list[str]:
     total_files = len(implementation.get("changes", {})) + len(implementation.get("new_files", {}))
     if total_files > max_files:
         issues.append(f"Implementation touches {total_files} files (max: {max_files})")
-
-    # Check blocked paths
-    all_paths = list(implementation.get("changes", {}).keys()) + list(implementation.get("new_files", {}).keys())
-    for path in all_paths:
-        if path.startswith(BLOCKED_PREFIXES):
-            issues.append(f"Cannot modify {path} (blocked: .github/workflows/ cannot be changed by agent)")
 
     # Check branch naming
     branch = implementation.get("branch_name", "")
@@ -480,6 +493,19 @@ def run_agent(
                 f"Please implement manually or clarify the issue.",
             )
             return {"skip": True, "reason": reason, "pr_url": None}
+
+        # Strip blocked paths (auto-fix, warn but don't skip)
+        stripped = strip_blocked_paths(result)
+        if stripped:
+            print(f"[repokeeper] Stripped blocked paths: {', '.join(stripped)}")
+            if not result.get("changes") and not result.get("new_files"):
+                post_comment(
+                    issue_obj,
+                    "🤖 **RepoKeeper** skipped: all planned changes were in blocked paths"
+                    f" ({', '.join(stripped)}).\n\n"
+                    "Please implement manually or clarify the issue.",
+                )
+                return {"skip": True, "reason": f"All changes in blocked paths: {', '.join(stripped)}", "pr_url": None}
 
         # Validate against profile constraints
         validation_issues = validate_implementation(result, profile)

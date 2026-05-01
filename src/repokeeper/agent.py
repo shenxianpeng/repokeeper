@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from github import Github
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 from openai import OpenAI
 
 from .profile import load_profile
@@ -428,7 +428,18 @@ def run_agent(
 
     gh = Github(gh_token)
     llm = OpenAI(api_key=llm_api_key, base_url=llm_base_url)
-    repo = gh.get_repo(repository)
+    try:
+        repo = gh.get_repo(repository)
+    except UnknownObjectException:
+        # Token doesn't have access to this repo — try GITHUB_TOKEN as fallback
+        fallback = os.environ.get("GITHUB_TOKEN")
+        if fallback and fallback != gh_token:
+            print("[repokeeper] Primary token unauthorized, falling back to GITHUB_TOKEN")
+            gh = Github(fallback)
+            repo = gh.get_repo(repository)
+            gh_token = fallback
+        else:
+            raise
     issue_obj = repo.get_issue(issue_number)
     issue_data = get_issue_data(repo, issue_number)
 

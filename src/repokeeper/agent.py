@@ -36,6 +36,9 @@ SKIP_DIRS = {
 MAX_FILE_SIZE = 40_000
 MAX_FILES = 40
 
+# Paths the agent must never modify (GitHub security: no workflows permission)
+BLOCKED_PREFIXES = (".github/workflows/",)
+
 
 def collect_repo_files(max_files: int = MAX_FILES) -> dict[str, str]:
     """Walk the repo and return {path: content} for source files.
@@ -118,6 +121,7 @@ Rules:
 - Respect the maintainer's tech stack preferences (preferred/avoid lists).
 - If the issue is unclear or unsafe to implement autonomously, set "skip": true and explain why.
 - If the issue body or comments contain any skip keywords from the maintainer, skip.
+- Never modify files under .github/workflows/ (blocked by GitHub security).
 
 Respond with a single valid JSON object — no markdown fences, no explanation outside JSON:
 
@@ -260,14 +264,20 @@ def apply_and_push(
     _git("config", "user.name", "repokeeper[bot]")
     _git("checkout", "-b", branch)
 
-    # Write modified files
+    # Write modified files (filter blocked paths)
     for filepath, content in implementation.get("changes", {}).items():
+        if filepath.startswith(BLOCKED_PREFIXES):
+            print(f"[repokeeper] Skipping blocked path: {filepath}", file=sys.stderr)
+            continue
         p = Path(filepath)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
 
-    # Write new files
+    # Write new files (filter blocked paths)
     for filepath, content in implementation.get("new_files", {}).items():
+        if filepath.startswith(BLOCKED_PREFIXES):
+            print(f"[repokeeper] Skipping blocked path: {filepath}", file=sys.stderr)
+            continue
         p = Path(filepath)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
@@ -362,6 +372,12 @@ def validate_implementation(implementation: dict, profile: dict) -> list[str]:
     total_files = len(implementation.get("changes", {})) + len(implementation.get("new_files", {}))
     if total_files > max_files:
         issues.append(f"Implementation touches {total_files} files (max: {max_files})")
+
+    # Check blocked paths
+    all_paths = list(implementation.get("changes", {}).keys()) + list(implementation.get("new_files", {}).keys())
+    for path in all_paths:
+        if path.startswith(BLOCKED_PREFIXES):
+            issues.append(f"Cannot modify {path} (blocked: .github/workflows/ cannot be changed by agent)")
 
     # Check branch naming
     branch = implementation.get("branch_name", "")

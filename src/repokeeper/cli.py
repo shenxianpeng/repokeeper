@@ -15,7 +15,7 @@ from openai import OpenAI
 from .agent import run_agent
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
-from .radar import run_radar
+from .radar import generate_radar_summary, run_radar
 
 
 def _make_github_client(token: str | None) -> Github:
@@ -82,6 +82,8 @@ def cmd_radar(args: argparse.Namespace) -> int:
     llm = _make_llm_client(args.llm_api_key, args.llm_base_url)
     report = run_radar(gh, llm, args.repo, profile)
     print(f"Radar: {len(report.hits)} actionable hits found")
+    if args.summary:
+        print(generate_radar_summary(report))
     return 0
 
 
@@ -158,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     radar = subparsers.add_parser("radar", help="Run Community Radar")
     add_common_remote(radar)
+    radar.add_argument("--summary", action="store_true", help="Print markdown summary")
     radar.set_defaults(func=cmd_radar)
 
     patrol = subparsers.add_parser("patrol", help="Run Daily Patrol")

@@ -584,3 +584,41 @@ def run_radar(
         notify_maintainer(profile, report)
 
     return report
+
+
+def generate_radar_summary(report: RadarReport) -> str:
+    """Generate a markdown summary of the radar scan.
+
+    Args:
+        report: Filled RadarReport.
+
+    Returns:
+        Markdown string.
+    """
+    lines = [
+        f"# 📡 Community Radar Report — [{report.repo}](https://github.com/{report.repo})",
+        "",
+        f"**Scanned:** {report.scanned_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        f"**Total scanned:** {report.total_scanned} | **Actionable:** {len(report.hits)}",
+        "",
+    ]
+
+    if report.bugs:
+        lines.append("## 🐛 Bugs")
+        lines.append("")
+        for hit in report.bugs:
+            lines.append(f"- [{hit.title}]({hit.url}) — {hit.summary}")
+        lines.append("")
+
+    if report.feature_requests:
+        lines.append("## 💡 Feature Requests")
+        lines.append("")
+        for hit in report.feature_requests:
+            lines.append(f"- [{hit.title}]({hit.url}) — {hit.summary}")
+        lines.append("")
+
+    if not report.hits:
+        lines.append("✅ No actionable hits found.")
+        lines.append("")
+
+    return "\n".join(lines)

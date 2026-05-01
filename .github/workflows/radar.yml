@@ -33,7 +33,7 @@ jobs:
           RKP_SMTP_USER: ${{ secrets.RKP_SMTP_USER || '' }}
           RKP_SMTP_PASS: ${{ secrets.RKP_SMTP_PASS || '' }}
           RKP_TELEGRAM_CHAT_ID: ${{ secrets.RKP_TELEGRAM_CHAT_ID || '' }}
-        run: repokeeper radar --repo "$GITHUB_REPOSITORY" --summary | tee radar-summary.md
+        run: repokeeper radar --repo "$GITHUB_REPOSITORY" --summary | tee radar-summary.md "$GITHUB_STEP_SUMMARY"
 
       - name: Upload radar summary
         uses: actions/upload-artifact@v7

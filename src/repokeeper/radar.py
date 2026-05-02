@@ -1,12 +1,3 @@
-"""
-Module 1: Community Radar
-
-Monitors GitHub issues and Discussions for keywords specified in the maintainer
-profile. Uses AI to classify each hit as bug, feature request, or noise,
-filters low-confidence results, generates structured issue drafts, and
-pushes notifications for maintainer approval (email / Telegram / WeChat).
-"""
-
 from __future__ import annotations
 
 import json
@@ -16,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from .profile import load_profile
+from .profile import is_organization, get_org_repos, load_profile
 
 logger = logging.getLogger(__name__)
 
@@ -519,106 +510,4 @@ def run_radar(
     1. Scans issues and discussions for keywords from profile.
     2. Classifies each hit with AI.
     3. Filters low-confidence / noise results.
-    4. Generates issue drafts for actionable hits.
-    5. Sends notifications.
-
-    Args:
-        gh_client: PyGithub Github instance.
-        llm_client: OpenAI-compatible LLM client.
-        repo: Repository slug (owner/repo).
-        profile: Maintainer profile (loaded if None).
-        since: Only scan items after this datetime.
-
-    Returns:
-        RadarReport with full results.
-    """
-    if profile is None:
-        profile = load_profile()
-
-    radar_config = profile.get("radar", {})
-    if not radar_config.get("enabled", True):
-        logger.info(f"Radar disabled for {repo}")
-        return RadarReport(repo=repo, scanned_at=datetime.now(), total_scanned=0)
-
-    keywords = radar_config.get("keywords", [])
-    if not keywords:
-        logger.warning(f"No keywords configured for {repo}. Add 'radar.keywords' to repokeeper.yml.")
-        return RadarReport(repo=repo, scanned_at=datetime.now(), total_scanned=0)
-
-    confidence_threshold = radar_config.get("confidence_threshold", 0.7)
-    model = profile.get("agent", {}).get("model", "deepseek-chat")
-
-    # Step 1: Scan
-    logger.info(f"🔭 Radar scanning {repo} for keywords: {keywords}")
-    hits = scan_issues(gh_client, repo, keywords, since=since)
-    hits += scan_discussions(gh_client, repo, keywords, since=since)
-    logger.info(f"  Found {len(hits)} raw hits")
-
-    # Step 2: Classify
-    for hit in hits:
-        classify_hit(hit, llm_client, model=model)
-
-    # Step 3: Filter
-    actionable = filter_hits(hits, confidence_threshold)
-    logger.info(f"  {len(actionable)} actionable after filtering (threshold={confidence_threshold})")
-
-    # Step 4: Generate drafts
-    for hit in actionable:
-        draft = generate_issue_draft(hit, llm_client, profile)
-        hit.suggested_title = draft.get("title", hit.suggested_title)
-        hit.suggested_labels = draft.get("labels", hit.suggested_labels)
-
-    # Step 5: Build report
-    report = RadarReport(
-        repo=repo,
-        scanned_at=datetime.now(),
-        total_scanned=len(hits),
-        hits=actionable,
-        bugs=[h for h in actionable if h.category == "bug"],
-        feature_requests=[h for h in actionable if h.category == "feature_request"],
-        noise=[h for h in hits if h.category == "noise"],
-    )
-
-    # Step 6: Notify
-    if actionable:
-        notify_maintainer(profile, report)
-
-    return report
-
-
-def generate_radar_summary(report: RadarReport) -> str:
-    """Generate a markdown summary of the radar scan.
-
-    Args:
-        report: Filled RadarReport.
-
-    Returns:
-        Markdown string.
-    """
-    lines = [
-        f"# 📡 Community Radar Report — [{report.repo}](https://github.com/{report.repo})",
-        "",
-        f"**Scanned:** {report.scanned_at.strftime('%Y-%m-%d %H:%M UTC')}",
-        f"**Total scanned:** {report.total_scanned} | **Actionable:** {len(report.hits)}",
-        "",
-    ]
-
-    if report.bugs:
-        lines.append("## 🐛 Bugs")
-        lines.append("")
-        for hit in report.bugs:
-            lines.append(f"- [{hit.title}]({hit.url}) — {hit.summary}")
-        lines.append("")
-
-    if report.feature_requests:
-        lines.append("## 💡 Feature Requests")
-        lines.append("")
-        for hit in report.feature_requests:
-            lines.append(f"- [{hit.title}]({hit.url}) — {hit.summary}")
-        lines.append("")
-
-    if not report.hits:
-        lines.append("✅ No actionable hits found.")
-        lines.append("")
-
-    return "\n".join(lines)
+    4. Generates issue

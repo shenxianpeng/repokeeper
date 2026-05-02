@@ -1,16 +1,3 @@
-"""
-Module 4: Maintainer Profile
-
-Core configuration system. A YAML file describes your maintainer preferences:
-code style, reply tone, PR acceptance standards, tech stacks to avoid.
-Every repo can inherit the global profile and override locally.
-
-Profile loading order (later overrides earlier):
-  1. ~/.repokeeper/global.yml          (global defaults)
-  2. <repo_root>/repokeeper.yml        (per-repo overrides)
-  3. Environment variables              (RKP_* overrides, for CI/secrets)
-"""
-
 from __future__ import annotations
 
 import os
@@ -181,6 +168,35 @@ def load_profile(profile_path: str | Path | None = None) -> dict[str, Any]:
     return profile
 
 
+def is_organization(profile: dict) -> bool:
+    """Check if the maintainer field refers to a GitHub organization.
+
+    An organization is detected when the maintainer value contains a slash
+    (e.g. "my-org") or when the profile has an 'organization' key set to true.
+    """
+    return profile.get("organization", False) or (
+        isinstance(profile.get("maintainer"), str)
+        and "/" in profile["maintainer"]
+    )
+
+
+def get_org_repos(gh_client: Any, org_name: str) -> list[str]:
+    """Get all repository slugs for a GitHub organization.
+
+    Args:
+        gh_client: PyGithub Github instance.
+        org_name: GitHub organization name.
+
+    Returns:
+        List of "owner/repo" strings.
+    """
+    try:
+        org = gh_client.get_organization(org_name)
+        return [repo.full_name for repo in org.get_repos()]
+    except Exception:
+        return []
+
+
 # ─── Template generation ─────────────────────────────────────────────────────
 
 def generate_profile_template(path: str | Path = "repokeeper.yml") -> None:
@@ -194,6 +210,13 @@ def generate_profile_template(path: str | Path = "repokeeper.yml") -> None:
 # Uncomment and customize the sections you need.
 
 # ── Maintainer info ──
+# For a single user:
+# maintainer: your-github-username
+#
+# For an organization (scans all repos in the org):
+# maintainer: your-org-name
+# organization: true
+
 maintainer: your-github-username
 
 # ── Communication tone ──

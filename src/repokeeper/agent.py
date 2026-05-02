@@ -240,18 +240,14 @@ def _repair_truncated_json(text: str) -> str | None:
     Tries to find the last complete key-value pair and close the object.
     Returns the repaired string or None if repair is not possible.
     """
-    # Find the last complete "key": "value" or "key": value pair
-    # Look for a pattern like "changes": { ... }
-    # If the string is unterminated, try adding closing quotes/braces.
-
-    # Strategy: walk backwards, tracking depth, to find where the string
-    # got cut off. Then try to close it.
-    depth = 0
+    # Strategy: walk forward with a bracket stack and string tracking.
+    # At the end, we know exactly which brackets are unclosed and whether
+    # we're inside a string. Then add the needed closing chars.
+    bracket_stack: list[str] = []  # stack of OPEN brackets
     in_string = False
     escape_next = False
-    last_key_end = -1
 
-    for i, ch in enumerate(text):
+    for ch in text:
         if escape_next:
             escape_next = False
             continue
@@ -264,58 +260,31 @@ def _repair_truncated_json(text: str) -> str | None:
         if in_string:
             continue
         if ch in "{[":
-            depth += 1
-        elif ch in "}]":
-            depth -= 1
+            bracket_stack.append(ch)
+        elif ch == "}":
+            if bracket_stack and bracket_stack[-1] == "{":
+                bracket_stack.pop()
+            # else: extra closing brace, ignore
+        elif ch == "]":
+            if bracket_stack and bracket_stack[-1] == "[":
+                bracket_stack.pop()
+            # else: extra closing bracket, ignore
 
-    if depth <= 0:
-        return None  # Not a truncation issue
+    if not bracket_stack and not in_string:
+        return None  # Nothing to repair
 
-    # Try adding enough closing quotes and braces
     repaired = text.rstrip()
+
     # If we're inside a string, close it first
     if in_string:
         repaired += '"'
-    # Close remaining brackets
-    # We need to figure out what's open - simplified: just try closing braces
-    # Walk backwards to determine open structure
-    close_chars = []
-    escape = False
-    in_str = False
-    for ch in reversed(text):
-        if escape:
-            escape = False
-            continue
-        if ch == "\\":
-            escape = True
-            continue
-        if ch == '"' and not escape:
-            in_str = not in_str
-            continue
-        if in_str:
-            continue
-        if ch == "}":
-            close_chars.append("{")
-        elif ch == "]":
-            close_chars.append("[")
-        elif ch == "{":
-            if close_chars and close_chars[-1] == "{":
-                close_chars.pop()
-        elif ch == "[":
-            if close_chars and close_chars[-1] == "[":
-                close_chars.pop()
 
-    # close_chars now contains the OPEN characters that haven't been closed,
-    # in order from innermost to outermost.
-    closing = ""
-    for open_ch in close_chars:
+    # Close remaining brackets in reverse order (innermost first)
+    for open_ch in reversed(bracket_stack):
         if open_ch == "{":
-            closing += "}"
+            repaired += "}"
         elif open_ch == "[":
-            closing += "]"
-
-    if closing:
-        repaired += closing
+            repaired += "]"
 
     return repaired if repaired != text else None
 

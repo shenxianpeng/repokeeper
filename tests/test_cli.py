@@ -49,3 +49,146 @@ def test_health_command_prints_score(monkeypatch, capsys):
 
     assert exit_code == 0
     assert capsys.readouterr().out.strip() == "91"
+
+
+def test_profile_show_command(tmp_path, capsys):
+    """profile show prints merged YAML."""
+    (tmp_path / "repokeeper.yml").write_text("maintainer: bob\n")
+    exit_code = cli.main(["profile", "show", "--profile", str(tmp_path / "repokeeper.yml")])
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "maintainer: bob" in output
+
+
+def test_radar_command_summary(monkeypatch, capsys):
+    """radar --summary prints markdown summary."""
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
+    from datetime import datetime
+    from repokeeper.radar import RadarHit, RadarReport
+
+    report = RadarReport(
+        repo="owner/repo",
+        scanned_at=datetime(2026, 1, 1),
+        total_scanned=100,
+        hits=[
+            RadarHit(
+                source="issue", repo="owner/repo", number=1,
+                title="Bug", body="desc", url="https://ex.test/1",
+                author="alice", created_at=datetime(2026, 1, 1),
+                matched_keyword="bug", category="bug", confidence=0.9,
+            )
+        ],
+    )
+    monkeypatch.setattr(cli, "run_radar", lambda *a, **kw: report)
+
+    exit_code = cli.main(["radar", "--repo", "owner/repo", "--summary"])
+    assert exit_code == 0
+
+
+def test_radar_command_no_summary(monkeypatch, capsys):
+    """radar without --summary just prints hit count."""
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
+    report = type("Report", (), {"repo": "owner/repo", "hits": []})()
+    monkeypatch.setattr(cli, "run_radar", lambda *a, **kw: report)
+
+    exit_code = cli.main(["radar", "--repo", "owner/repo"])
+    assert exit_code == 0
+    assert "0 actionable hits" in capsys.readouterr().out
+
+
+def test_patrol_command_summary(monkeypatch, capsys):
+    """patrol --summary prints health summary."""
+    from datetime import datetime
+    from repokeeper.patrol import PatrolReport
+
+    report = PatrolReport(
+        repo="owner/repo",
+        scanned_at=datetime(2026, 1, 1),
+    )
+    monkeypatch.setattr(cli, "_run_patrol_report", lambda args: report)
+
+    exit_code = cli.main(["patrol", "--repo", "owner/repo", "--summary"])
+    assert exit_code == 0
+
+
+def test_init_without_workflows(tmp_path, capsys):
+    """init without --workflows only writes profile."""
+    exit_code = cli.main(["init", str(tmp_path)])
+    assert exit_code == 0
+    assert (tmp_path / "repokeeper.yml").exists()
+    assert not (tmp_path / ".github" / "workflows").exists()
+
+
+def test_init_with_force_overwrite(tmp_path):
+    """init --force overwrites existing profile."""
+    p = tmp_path / "repokeeper.yml"
+    p.write_text("old content")
+    exit_code = cli.main(["init", str(tmp_path), "--force"])
+    assert exit_code == 0
+    assert p.read_text() != "old content"
+
+
+def test_missing_repo_argument_fails(capsys):
+    """Commands requiring --repo fail without it."""
+    with pytest.raises(SystemExit):
+        cli.main(["radar"])
+
+
+def test_agent_command_skip_result(monkeypatch, capsys):
+    """agent command prints skip reason."""
+    monkeypatch.setattr(cli, "run_agent", lambda **kw: {"skip": True, "reason": "test skip"})
+    exit_code = cli.main(["agent", "--repo", "owner/repo", "--issue", "42"])
+    assert exit_code == 0
+    assert "Skipped: test skip" in capsys.readouterr().out
+
+
+def test_agent_command_success(monkeypatch, capsys):
+    """agent command prints PR URL on success."""
+    monkeypatch.setattr(cli, "run_agent", lambda **kw: {"skip": False, "reason": "", "pr_url": "https://example.test/pr/1"})
+    exit_code = cli.main(["agent", "--repo", "owner/repo", "--issue", "42"])
+    assert exit_code == 0
+    assert "PR created: https://example.test/pr/1" in capsys.readouterr().out
+
+
+def test_patrol_without_summary(monkeypatch, capsys):
+    """patrol without --summary prints stats line."""
+    from datetime import datetime
+    from repokeeper.patrol import PatrolReport
+
+    report = PatrolReport(
+        repo="owner/repo",
+        scanned_at=datetime(2026, 1, 1),
+    )
+    monkeypatch.setattr(cli, "_run_patrol_report", lambda args: report)
+
+    exit_code = cli.main(["patrol", "--repo", "owner/repo"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Patrol: health=100/100" in captured.out
+
+
+def test_default_path_for_init():
+    """init without path defaults to current directory."""
+    # Just verify the argument default
+    parser = cli.build_parser()
+    args = parser.parse_args(["init"])
+    assert args.path == "."
+
+
+def test_cmd_radar_missing_token(tmp_path, monkeypatch):
+    """radar fails with clear message when GITHUB_TOKEN missing."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("REPOKEEPER_GITHUB_TOKEN", raising=False)
+    with pytest.raises(SystemExit, match="Missing GitHub token"):
+        cli.main(["radar", "--repo", "owner/repo"])
+
+
+def test_cmd_agent_missing_llm_key(tmp_path, monkeypatch):
+    """agent command raises RuntimeError when LLM key is missing."""
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY or OPENAI_API_KEY"):
+        cli.main(["agent", "--repo", "owner/repo", "--issue", "1"])

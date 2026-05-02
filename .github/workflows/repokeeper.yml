@@ -45,6 +45,7 @@ jobs:
 
       - name: Run RepoKeeper Agent
         env:
+          PYTHONUNBUFFERED: 1
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

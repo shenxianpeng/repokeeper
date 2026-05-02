@@ -106,6 +106,7 @@ def test_load_yaml_scalar_not_dict(tmp_path):
 def test_load_yaml_nonexistent_file():
     """_load_yaml returns empty dict for nonexistent file."""
     from pathlib import Path
+
     from repokeeper.profile import _load_yaml
     result = _load_yaml(Path("/nonexistent/path/profile.yml"))
     assert result == {}

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -24,7 +23,6 @@ from repokeeper.agent import (
     strip_blocked_paths,
     validate_implementation,
 )
-
 
 # ── Module imports ────────────────────────────────────────────────────────────
 
@@ -701,14 +699,14 @@ def test_create_pr_handles_403_permission_error():
 
 def test_create_pr_re_raises_other_github_errors():
     """Non-403 GithubExceptions are re-raised."""
+    from github.GithubException import GithubException
 
     class Repo:
         default_branch = "main"
         def create_pull(self, **kwargs):
-            from github.GithubException import GithubException
             raise GithubException(500, "server error", {})
 
-    with pytest.raises(Exception):  # not RuntimeError
+    with pytest.raises(GithubException):
         create_pr(
             Repo(),
             {"number": 1},
@@ -1043,7 +1041,6 @@ def test_run_agent_uses_repokeeper_github_token_env(monkeypatch):
     # Since the full flow would invoke get_repo which we mocked to raise,
     # we instead verify the gh_token variable via a simpler test approach.
     # Override the entire run_agent internals for this env-var test.
-    from repokeeper.agent import run_agent as _orig_run_agent
 
     def patched_run_agent(**kwargs):
         # Just check gh_token was resolved correctly

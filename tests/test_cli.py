@@ -65,6 +65,7 @@ def test_radar_command_summary(monkeypatch, capsys):
     monkeypatch.setenv("GITHUB_TOKEN", "tk")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
     from datetime import datetime
+
     from repokeeper.radar import RadarHit, RadarReport
 
     report = RadarReport(
@@ -101,6 +102,7 @@ def test_radar_command_no_summary(monkeypatch, capsys):
 def test_patrol_command_summary(monkeypatch, capsys):
     """patrol --summary prints health summary."""
     from datetime import datetime
+
     from repokeeper.patrol import PatrolReport
 
     report = PatrolReport(
@@ -155,6 +157,7 @@ def test_agent_command_success(monkeypatch, capsys):
 def test_patrol_without_summary(monkeypatch, capsys):
     """patrol without --summary prints stats line."""
     from datetime import datetime
+
     from repokeeper.patrol import PatrolReport
 
     report = PatrolReport(

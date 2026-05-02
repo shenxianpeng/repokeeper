@@ -340,7 +340,6 @@ def call_llm(
     ]
 
     max_retries = 2
-    last_error = None
 
     for attempt in range(max_retries + 1):
         response = llm_client.chat.completions.create(
@@ -355,7 +354,6 @@ def call_llm(
         try:
             return _parse_llm_json(raw)
         except ValueError as err:
-            last_error = err
             if attempt < max_retries:
                 print(
                     f"[repokeeper] JSON parse failed (attempt {attempt + 1}), retrying...",

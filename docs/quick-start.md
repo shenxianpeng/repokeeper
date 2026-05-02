@@ -2,69 +2,70 @@
 
 Get RepoKeeper running in 5 minutes.
 
-## 1. Copy the workflows
+## 1. Copy the agent workflow
 
-Create `.github/workflows/` and copy the bundled workflows:
+Create `.github/workflows/` and copy the Implementation Agent workflow:
 
 ```bash
 mkdir -p .github/workflows
 curl -fsSLo .github/workflows/repokeeper.yml \
   https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/repokeeper.yml
-curl -fsSLo .github/workflows/radar.yml \
-  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/radar.yml
-curl -fsSLo .github/workflows/patrol.yml \
-  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/patrol.yml
 ```
 
-You can also run `pip install repokeeper && repokeeper init . --workflows` if
-you prefer the CLI to write these files.
+You can also run `pip install repokeeper && repokeeper init . --minimal` if
+you prefer the CLI to write the profile and workflow.
 
-## 2. Create your profile
-
-Create `repokeeper.yml` and adjust anything repo-specific:
-
-```bash
-cat > repokeeper.yml <<'EOF'
-maintainer: your-github-username
-radar:
-  keywords:
-    - bug
-    - crash
-    - security
-    - feature request
-
-patrol:
-  schedule: "0 8 * * 1-5"
-
-agent:
-  model: deepseek-chat
-EOF
-```
-
-## 3. Add your API key
+## 2. Add your API key
 
 Go to **Settings → Secrets and variables → Actions** → **New repository secret**:
 
 - **Name:** `DEEPSEEK_API_KEY`
 - **Value:** `sk-...`
 
-## 4. Push and test
+## 3. Push and test
 
 ```bash
-git add .github/workflows repokeeper.yml
-git commit -m "Add RepoKeeper"
+git add .github/workflows/repokeeper.yml
+git commit -m "Add RepoKeeper agent"
 git push
 ```
 
-Go to the **Actions** tab, select **RepoKeeper Daily Patrol**, click **Run workflow**.
-
-## 5. Try the Implementation Agent
-
-Create a new issue, label it `agent-todo`, and RepoKeeper will analyze your codebase
-and open a PR with the implementation.
+Create a new issue, label it `agent-todo`, and RepoKeeper will analyze your
+codebase and open a PR with the implementation.
 
 Or comment `@repokeeper go` on an existing issue (must be a repo collaborator).
 
+## 4. Optional: create a profile
+
+RepoKeeper runs with defaults, but `repokeeper.yml` lets you customize style,
+verification commands, and skip rules:
+
+```bash
+cat > repokeeper.yml <<'EOF'
+maintainer: your-github-username
+
+style:
+  testing: pytest
+  linting: true
+
+agent:
+  model: deepseek-chat
+  verify_commands:
+    - ruff check .
+    - pytest tests
+EOF
+```
+
+Run a local setup check any time:
+
+```bash
+repokeeper doctor --repo owner/repo
+```
+
+Want community monitoring and daily health reports too? Run
+`repokeeper init . --all-workflows --force` or copy `radar.yml` and `patrol.yml`
+from the template directory.
+
 ---
 
-That's it! RepoKeeper is now monitoring your repository.
+That's it. RepoKeeper can now handle issue-triggered implementation PRs.

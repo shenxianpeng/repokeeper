@@ -74,6 +74,7 @@ Complete JSON Schema for `repokeeper.yml`.
 | `max_context_files` | integer | No | `40` | 1–100 |
 | `temperature` | float | No | `0.1` | 0.0–2.0 |
 | `skip_keywords` | list[string] | No | `[]` | Any strings |
+| `verify_commands` | list[string] or boolean | No | auto-detect | Shell-like command strings, command arrays, or `false` |
 
 ## `radar`
 

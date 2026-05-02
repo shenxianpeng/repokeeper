@@ -35,14 +35,14 @@ Triaging issues, bumping dependencies, diagnosing CI, responding to the communit
 | How | Inline completion in editor | Reads issues + codebase → opens PRs |
 | When | While you code | 24/7 on schedule |
 | Community | No | Monitors, classifies, responds |
-| Dependencies | No | Scans for outdated deps, auto-upgrades |
+| Dependencies | No | Scans for outdated deps, reports upgrade candidates |
 | CI | No | Diagnoses failures, suggests fixes |
 | **Cost** | $10–39/month subscription | **~$0.01 per PR** with DeepSeek |
 | Config | IDE settings | One YAML (or zero) |
 
 ## What It Does
 
-- **🔭 Community Radar** — Monitors GitHub issues/discussions for keywords. AI classifies hits. Drafts responses. Notifies you.
+- **🔭 Community Radar** — Monitors GitHub issues for keywords. AI classifies hits. Drafts responses. Notifies you.
 - **🔍 Daily Patrol** — Scans dependencies, diagnoses CI failures, finds stale issues. Health score every weekday morning.
 - **🤖 Implementation Agent** — Reads your codebase + issue → implements → pushes branch → opens PR. *You never write a line.*
 - **👤 Maintainer Profile** — One YAML file describing your code style, tone, PR standards. *Or skip it — defaults work.*
@@ -79,6 +79,8 @@ pip install repokeeper
 
 ```bash
 repokeeper init             # Create a profile
+repokeeper init --minimal   # Create a profile + agent workflow
+repokeeper doctor --repo owner/repo
 repokeeper radar --repo owner/repo
 repokeeper patrol --repo owner/repo --summary
 repokeeper agent --repo owner/repo --issue 42

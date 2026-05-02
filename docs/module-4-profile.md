@@ -213,6 +213,9 @@ agent:
     - "needs design"
     - "breaking change"
     - "RFC required"
+  verify_commands:
+    - ruff check .
+    - pytest tests
 ```
 
 | Field | Type | Default | Description |
@@ -222,6 +225,7 @@ agent:
 | `max_context_files` | int | `40` | Max files in LLM context |
 | `temperature` | float | `0.1` | LLM temperature |
 | `skip_keywords` | list | `[]` | Phrases that trigger auto-skip |
+| `verify_commands` | list/bool | auto-detect | Commands required before PR creation; set `false` to disable |
 
 ### `radar` — Community Radar Settings
 
@@ -258,9 +262,9 @@ patrol:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the patrol |
 | `schedule` | string | `"0 8 * * 1-5"` | Cron schedule |
-| `auto_upgrade_deps` | bool | `true` | Auto-PR for deps |
+| `auto_upgrade_deps` | bool | `true` | Include dependency upgrade candidates |
 | `stale_days` | int | `90` | Stale issue threshold |
-| `ci_auto_fix` | bool | `true` | Attempt CI auto-fixes |
+| `ci_auto_fix` | bool | `true` | Record auto-fixable CI candidates |
 
 ## Environment Variable Overrides
 

@@ -10,13 +10,13 @@ This guide walks through installing and configuring RepoKeeper.
 
 ## Installation
 
-### Option 1: Generate workflows (recommended for existing repos)
+### Option 1: Generate the agent workflow (recommended for existing repos)
 
 Install RepoKeeper and generate the starter files in your repository:
 
 ```bash
 pip install repokeeper
-repokeeper init . --workflows
+repokeeper init . --minimal
 ```
 
 That command creates this layout:
@@ -26,10 +26,11 @@ your-repo/
 ├── .github/
 │   └── workflows/
 │       ├── repokeeper.yml    # Implementation Agent
-│       ├── radar.yml         # Community Radar
-│       └── patrol.yml        # Daily Patrol
 └── repokeeper.yml            # Your maintainer profile
 ```
+
+To also create Community Radar and Daily Patrol workflows, run
+`repokeeper init . --all-workflows --force`.
 
 ### Option 2: Use the CLI without workflows
 
@@ -104,6 +105,12 @@ Go to your repository → **Settings** → **Secrets and variables** → **Actio
 
 Push the workflows and profile to your repo. Go to the **Actions** tab and
 manually trigger any workflow to test.
+
+You can also run a local setup check:
+
+```bash
+repokeeper doctor --repo owner/repo
+```
 
 ## Profile Layering
 

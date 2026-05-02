@@ -1,9 +1,13 @@
 # Module 1: Community Radar 🔭
 
-The Community Radar monitors GitHub issues and Discussions for keywords you
+The Community Radar monitors GitHub issues for keywords you
 specify. When it finds a match, it uses AI to classify the post (bug, feature
 request, question, or noise), generates a structured issue draft, and notifies
 you for approval.
+
+!!! note "Current scope"
+    The current implementation scans GitHub issues. GitHub Discussions support
+    is planned, but not active in this release.
 
 ## Architecture
 
@@ -56,7 +60,7 @@ radar:
 The radar scans your repository's open issues for keyword matches. It checks:
 
 - **Issue titles and bodies** — any keyword match triggers a hit
-- **Discussions** (via GraphQL API, requires `discussion:read` scope)
+- **Discussions** — planned for a future release
 
 Each hit records:
 - Which keyword matched

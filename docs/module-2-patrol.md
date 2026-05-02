@@ -69,9 +69,10 @@ Each outdated dependency is assigned a severity:
 
 #### Auto-Upgrade PR
 
-When `auto_upgrade_deps` is `true`, the patrol opens a PR that upgrades all
-outdated dependencies. The PR body lists each package, current version, and
-latest version:
+When `auto_upgrade_deps` is `true`, RepoKeeper prepares dependency upgrade
+report data. Automatic dependency file editing is still in progress, so the
+current workflow reports outdated packages rather than safely rewriting lock
+files.
 
 ```markdown
 ## 📦 Dependency Upgrades
@@ -109,7 +110,8 @@ Auto-fixable: ✅ Yes
 ```
 
 When `ci_auto_fix` is enabled and the diagnosis is `auto_fixable: true`,
-RepoKeeper will attempt to apply the fix and open a PR.
+RepoKeeper records the fix as a candidate. Applying CI fixes and opening repair
+PRs automatically is still in progress.
 
 ### 3. Stale Issue Detection
 

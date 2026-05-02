@@ -111,8 +111,8 @@ Existing tools help **you** write code faster. They don't run your repo while yo
   </div>
 </div>
 
-**No `repokeeper.yml` needed.** Sensible defaults handle everything. Add a profile
-later when you want custom keywords, code style, or notifications.
+**No `repokeeper.yml` needed for the first PR.** Add a profile later when you
+want custom keywords, code style, verification commands, or notifications.
 
 [Full setup guide →](setup.md)
 

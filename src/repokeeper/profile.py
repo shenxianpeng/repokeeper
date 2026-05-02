@@ -248,6 +248,9 @@ maintainer: your-github-username
 #   skip_keywords:            # phrases that trigger auto-skip
 #     - "needs design"
 #     - "breaking change"
+#   verify_commands:          # commands that must pass before PR creation
+#     - ruff check .
+#     - pytest tests
 
 # ── Community Radar ──
 # radar:

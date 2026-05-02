@@ -4,153 +4,114 @@ hide:
   - toc
 ---
 
-<div class="rk-hero">
-  <div class="rk-hero__eyebrow">ai maintainer · autonomous · zero config</div>
-  <div class="rk-hero__headline">
-    Your repo,<br>
-    <span class="rk-accent">maintained by AI.</span>
-  </div>
-  <p class="rk-hero__sub">
-    <strong>RepoKeeper</strong> is an AI agent that runs your open source maintenance —
-    monitoring issues, diagnosing CI, updating dependencies, and <em>implementing code from issues</em>.
-    No code-completion. No prompting. Just an agent doing the work.
-  </p>
-  <div class="rk-hero__facts">
-    <span class="rk-hero__fact">Zero config</span>
-    <span class="rk-hero__fact">GitHub-native</span>
-    <span class="rk-hero__fact">$0.01 per PR</span>
-    <span class="rk-hero__fact">CI-ready</span>
-  </div>
-  <div class="rk-cta-group">
-    <a class="rk-btn rk-btn-primary" href="quick-start/">Add to my repo</a>
-    <a class="rk-btn rk-btn-secondary" href="https://github.com/shenxianpeng/repokeeper">GitHub →</a>
-  </div>
+<div class="rk-home">
+  <section class="rk-home__hero">
+    <div class="rk-home__eyebrow">GitHub-native maintainer agent</div>
+    <h1 class="rk-home__title">
+      Keep repositories moving.
+      <span>Turn issues into verified PRs.</span>
+    </h1>
+    <p class="rk-home__lede">
+      RepoKeeper runs maintenance where open source work already happens:
+      GitHub issues, Actions, branches, checks, and pull requests. It watches
+      the queue, reads the codebase, verifies changes, and leaves maintainers
+      with reviewable work instead of another prompt.
+    </p>
+    <div class="rk-home__actions">
+      <a class="md-button md-button--primary" href="quick-start/">Add to a repo</a>
+      <a class="md-button" href="module-3-agent/">See the agent flow</a>
+    </div>
+  </section>
+
+  <section class="rk-signal-grid">
+    <div class="rk-signal-card">
+      <div class="rk-signal-card__label">Trigger</div>
+      <div class="rk-signal-card__value">Issue label or comment</div>
+    </div>
+    <div class="rk-signal-card">
+      <div class="rk-signal-card__label">Context</div>
+      <div class="rk-signal-card__value">Repo files + maintainer profile</div>
+    </div>
+    <div class="rk-signal-card">
+      <div class="rk-signal-card__label">Verify</div>
+      <div class="rk-signal-card__value">Project lint and tests</div>
+    </div>
+    <div class="rk-signal-card">
+      <div class="rk-signal-card__label">Deliver</div>
+      <div class="rk-signal-card__value">Branch, commit, pull request</div>
+    </div>
+  </section>
+
+  <section class="rk-band">
+    <p>
+      Copilot helps while you are coding. RepoKeeper handles the maintenance
+      queue when you are not.
+    </p>
+  </section>
+
+  <section class="rk-card-grid">
+    <article class="rk-panel">
+      <h2>What ships now</h2>
+      <ul>
+        <li>Issue-triggered implementation agent for GitHub repositories</li>
+        <li>Profile-driven code style, skip keywords, and PR guardrails</li>
+        <li>Pre-PR verification through discovered or configured commands</li>
+        <li>Community radar and daily patrol reports for maintainer visibility</li>
+      </ul>
+    </article>
+
+    <article class="rk-panel">
+      <h2>Fastest path</h2>
+      <ol>
+        <li>Copy one GitHub Actions workflow into the repository.</li>
+        <li>Add a <code>DEEPSEEK_API_KEY</code> repository secret.</li>
+        <li>Label an issue <code>agent-todo</code> or comment <code>@repokeeper go</code>.</li>
+        <li>Review the generated branch and pull request.</li>
+      </ol>
+    </article>
+
+    <article class="rk-terminal">
+      <div class="rk-terminal__bar">
+        <div class="rk-terminal__dot"></div>
+        <div class="rk-terminal__dot"></div>
+        <div class="rk-terminal__dot"></div>
+        <span class="rk-terminal__title">github-actions / repokeeper</span>
+      </div>
+      <div class="rk-terminal__body">
+        <div><span class="t-comment"># label: agent-todo</span></div>
+        <div><span class="t-label">[repokeeper]</span> <span class="t-white">Issue #42: Add dark mode toggle</span></div>
+        <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Collecting repository context...</span></div>
+        <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Calling LLM (deepseek-chat)...</span></div>
+        <div><span class="t-label">[repokeeper]</span> <span class="t-white">Plan: Add theme state and styles</span></div>
+        <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Verifying: ruff check .</span></div>
+        <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Verifying: pytest tests</span></div>
+        <div><span class="t-green">PR opened:</span> <span class="t-highlight">github.com/owner/repo/pull/67</span></div>
+      </div>
+    </article>
+
+    <article class="rk-panel">
+      <h2>Current boundary</h2>
+      <ul>
+        <li>Human review remains required before merging generated PRs</li>
+        <li>Workflow file edits are blocked for GitHub token safety</li>
+        <li>Dependency upgrades and CI repair PRs are reported as candidates first</li>
+      </ul>
+    </article>
+  </section>
+
+  <section class="rk-panel">
+    <h2>RepoKeeper vs. coding assistants</h2>
+    <table class="rk-compare">
+      <thead>
+        <tr><th></th><th>Copilot / Cursor</th><th>RepoKeeper</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Primary job</td><td>Suggest code while you type</td><td>Maintain the repository queue</td></tr>
+        <tr><td>Interface</td><td>Editor session</td><td>Issues, Actions, branches, PRs</td></tr>
+        <tr><td>Timing</td><td>When you are coding</td><td>On labels, comments, and schedules</td></tr>
+        <tr><td>Verification</td><td>Developer-run checks</td><td>Configured pre-PR commands</td></tr>
+        <tr class="rk-highlight"><td>Output</td><td>Inline suggestions</td><td>Reviewable pull requests</td></tr>
+      </tbody>
+    </table>
+  </section>
 </div>
-
-<div class="rk-terminal">
-  <div class="rk-terminal__bar">
-    <div class="rk-terminal__dot"></div>
-    <div class="rk-terminal__dot"></div>
-    <div class="rk-terminal__dot"></div>
-    <span class="rk-terminal__title">github-actions — repokeeper</span>
-  </div>
-  <div class="rk-terminal__body">
-    <div><span class="t-comment"># Label any issue agent-todo — RepoKeeper handles the rest</span></div>
-    <div>&nbsp;</div>
-    <div><span class="t-label">[repokeeper]</span> <span class="t-white">Issue #42: Add dark mode toggle</span></div>
-    <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Collecting repository context...</span></div>
-    <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Loaded 35 files</span></div>
-    <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Calling LLM (deepseek-chat)...</span></div>
-    <div><span class="t-label">[repokeeper]</span> <span class="t-white">Plan: Add dark mode CSS toggle and theme context</span></div>
-    <div>&nbsp;</div>
-    <div><span class="t-dim">→ git checkout -b repokeeper/issue-42-dark-mode</span></div>
-    <div><span class="t-dim">→ Created src/theme.py, src/styles/dark.css</span></div>
-    <div><span class="t-dim">→ Modified src/App.tsx, src/index.html</span></div>
-    <div><span class="t-dim">→ git push origin repokeeper/issue-42-dark-mode</span></div>
-    <div>&nbsp;</div>
-    <div><span class="t-green">✓ PR opened:</span> <span class="t-highlight">https://github.com/owner/repo/pull/67</span></div>
-    <div>&nbsp;</div>
-    <div><span class="t-comment"># Review, approve, merge. You never wrote a line.</span></div>
-  </div>
-</div>
-
-## The Problem
-
-Open source maintenance is a second job you didn't sign up for. Triaging issues,
-bumping dependencies, diagnosing flaky CI, responding to community questions —
-all *before* you write a single line of code.
-
-Existing tools help **you** write code faster. They don't run your repo while you sleep.
-
-## Why RepoKeeper vs. Copilot
-
-<table class="rk-compare">
-  <thead>
-    <tr><th></th><th>Copilot / Cursor</th><th>RepoKeeper</th></tr>
-  </thead>
-  <tbody>
-    <tr><td>What it does</td><td>Suggests code as you type</td><td>Maintains your repo autonomously</td></tr>
-    <tr><td>How it works</td><td>Inline completion in editor</td><td>Reads issues + codebase → opens PRs</td></tr>
-    <tr><td>When it runs</td><td>While you code</td><td>24/7 on schedule</td></tr>
-    <tr><td>Community</td><td>No</td><td>Monitors, classifies, responds</td></tr>
-    <tr><td>Dependencies</td><td>No</td><td>Scans, upgrades, PRs</td></tr>
-    <tr><td>CI</td><td>No</td><td>Diagnoses failures, suggests fixes</td></tr>
-    <tr class="rk-highlight"><td>Cost</td><td>$10–39/month sub</td><td>~$0.01/PR with DeepSeek</td></tr>
-    <tr><td>Config</td><td>IDE settings</td><td>One YAML (or zero)</td></tr>
-  </tbody>
-</table>
-
-**They're complementary.** Copilot helps you write code. RepoKeeper runs your repo.
-
-## How to Adopt
-
-<div class="rk-steps">
-  <div class="rk-step">
-    <div class="rk-step__num">01</div>
-    <div class="rk-step__title">Copy one file</div>
-    <div class="rk-step__desc">
-      One workflow into <code>.github/workflows/</code>.
-      No Python. No install.
-    </div>
-  </div>
-  <div class="rk-step">
-    <div class="rk-step__num">02</div>
-    <div class="rk-step__title">Add API key</div>
-    <div class="rk-step__desc">
-      <code>DEEPSEEK_API_KEY</code> secret.
-      Free tier available.
-    </div>
-  </div>
-  <div class="rk-step">
-    <div class="rk-step__num">03</div>
-    <div class="rk-step__title">Trigger the agent</div>
-    <div class="rk-step__desc">
-      Label <code>agent-todo</code> or comment
-      <code>@repokeeper go</code>. That's it.
-    </div>
-  </div>
-</div>
-
-**No `repokeeper.yml` needed for the first PR.** Add a profile later when you
-want custom keywords, code style, verification commands, or notifications.
-
-[Full setup guide →](setup.md)
-
-## Four Modules
-
-<div class="rk-steps">
-  <div class="rk-step">
-    <div class="rk-step__num">🔭</div>
-    <div class="rk-step__title">Community Radar</div>
-    <div class="rk-step__desc">
-      Monitors GitHub for keywords. AI classifies hits. Drafts issues. Sends notifications.
-    </div>
-  </div>
-  <div class="rk-step">
-    <div class="rk-step__num">🔍</div>
-    <div class="rk-step__title">Daily Patrol</div>
-    <div class="rk-step__desc">
-      Scans deps, diagnoses CI, finds stale issues. Produces a health score every weekday.
-    </div>
-  </div>
-  <div class="rk-step">
-    <div class="rk-step__num">🤖</div>
-    <div class="rk-step__title">Implementation Agent</div>
-    <div class="rk-step__desc">
-      Reads codebase + issue → implements → pushes branch → opens PR. Zero human code.
-    </div>
-  </div>
-  <div class="rk-step">
-    <div class="rk-step__num">👤</div>
-    <div class="rk-step__title">Maintainer Profile</div>
-    <div class="rk-step__desc">
-      One YAML for your code style, tone, PR standards. Or skip it — defaults work.
-    </div>
-  </div>
-</div>
-
-[Explore all modules →](module-1-radar.md)
-
----
-
-*RepoKeeper is MIT licensed. Built by [@shenxianpeng](https://github.com/shenxianpeng).*

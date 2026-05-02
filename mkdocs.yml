@@ -10,8 +10,8 @@ theme:
   favicon: assets/favicon.svg
   logo: assets/logo.svg
   font:
-    text: false
-    code: false
+    text: Space Grotesk
+    code: JetBrains Mono
   palette:
     - scheme: slate
       primary: custom

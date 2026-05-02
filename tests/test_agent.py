@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -18,8 +19,11 @@ from repokeeper.agent import (
     check_skip_keywords,
     collect_repo_files,
     create_pr,
+    discover_verification_commands,
+    format_verification_failures,
     get_issue_data,
     run_agent,
+    run_verification_commands,
     strip_blocked_paths,
     validate_implementation,
 )
@@ -651,6 +655,58 @@ def test_apply_and_push_creates_parent_dirs(tmp_path, monkeypatch):
     branch, files = apply_and_push(impl, "token", "owner/repo")
     assert "deep/nested/path/file.py" in files
     assert Path("deep/nested/path/file.py").read_text() == "deep content"
+
+
+# ── verification commands ───────────────────────────────────────────────────
+
+def test_discover_verification_commands_uses_configured_commands(tmp_path):
+    profile = {"agent": {"verify_commands": ["python -m pytest tests", ["ruff", "check", "."]]}}
+
+    commands = discover_verification_commands(profile, tmp_path)
+
+    assert commands == [["python", "-m", "pytest", "tests"], ["ruff", "check", "."]]
+
+
+def test_discover_verification_commands_can_be_disabled(tmp_path):
+    profile = {"agent": {"verify_commands": False}}
+
+    assert discover_verification_commands(profile, tmp_path) == []
+
+
+def test_run_verification_commands_records_failures(tmp_path):
+    profile = {"agent": {"verify_commands": [[sys.executable, "-c", "import sys; sys.exit(3)"]]}}
+
+    results = run_verification_commands(profile, tmp_path)
+
+    assert len(results) == 1
+    assert results[0].returncode == 3
+    message = format_verification_failures(results)
+    assert "Verification failed" in message
+    assert "Exit code: 3" in message
+
+
+def test_apply_and_push_runs_verification_before_commit(tmp_path, monkeypatch):
+    workdir = tmp_path / "repo"
+    _setup_git_repo(workdir)
+    monkeypatch.chdir(workdir)
+    subprocess = __import__("subprocess")
+
+    Path("existing.py").write_text("old")
+    subprocess.run(["git", "add", "existing.py"], check=True)
+    subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
+
+    impl = {
+        "branch_name": "repokeeper/issue-1-verify",
+        "commit_message": "fix: verify",
+        "changes": {"existing.py": "new"},
+    }
+    profile = {"agent": {"verify_commands": [[sys.executable, "-c", "import sys; sys.exit(4)"]]}}
+
+    with pytest.raises(RuntimeError, match="Verification failed"):
+        apply_and_push(impl, "token", "owner/repo", profile)
+
+    result = subprocess.run(["git", "log", "--oneline"], capture_output=True, text=True, check=True)
+    assert "fix: verify" not in result.stdout
 
 
 # ── create_pr ───────────────────────────────────────────────────────────────

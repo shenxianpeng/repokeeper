@@ -13,8 +13,11 @@ tech stack preferences, and skip keywords.
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from github import Github
@@ -39,6 +42,24 @@ MAX_FILES = 40
 
 # Paths the agent must never modify (GitHub security: no workflows permission)
 BLOCKED_PREFIXES = (".github/workflows/",)
+
+
+@dataclass
+class VerificationResult:
+    """Result from a command run before committing agent changes."""
+
+    command: list[str]
+    returncode: int
+    stdout: str
+    stderr: str
+
+    @property
+    def display_command(self) -> str:
+        return " ".join(shlex.quote(part) for part in self.command)
+
+    @property
+    def passed(self) -> bool:
+        return self.returncode == 0
 
 
 def collect_repo_files(max_files: int = MAX_FILES) -> dict[str, str]:
@@ -386,10 +407,123 @@ def _git(*args, check=True, capture=False):
     return subprocess.run(["git", *args], **kwargs)
 
 
+def _has_python_files(root: Path) -> bool:
+    return any(
+        p.suffix == ".py" and not any(part in SKIP_DIRS for part in p.parts)
+        for p in root.rglob("*.py")
+    )
+
+
+def _normalize_command(command: object) -> list[str] | None:
+    if isinstance(command, str):
+        return shlex.split(command)
+    if isinstance(command, list) and all(isinstance(part, str) for part in command):
+        return command
+    return None
+
+
+def discover_verification_commands(profile: dict, repo_path: Path = Path(".")) -> list[list[str]]:
+    """Discover commands that should pass before the agent opens a PR."""
+    agent_config = profile.get("agent", {})
+    configured = agent_config.get("verify_commands")
+    if configured is not None:
+        if configured is False:
+            return []
+        if not isinstance(configured, list):
+            return []
+        commands = [_normalize_command(command) for command in configured]
+        return [command for command in commands if command]
+
+    style = profile.get("style", {})
+    commands: list[list[str]] = []
+    has_python = _has_python_files(repo_path)
+
+    if style.get("linting", True) and has_python and shutil.which("ruff"):
+        commands.append(["ruff", "check", "."])
+
+    testing = style.get("testing", "pytest")
+    if testing == "pytest" and (repo_path / "tests").exists() and shutil.which("pytest"):
+        commands.append(["pytest", "tests"])
+    elif testing == "go test" and (repo_path / "go.mod").exists() and shutil.which("go"):
+        commands.append(["go", "test", "./..."])
+    elif testing == "jest" and (repo_path / "package.json").exists() and shutil.which("npm"):
+        commands.append(["npm", "test"])
+
+    return commands
+
+
+def run_verification_commands(
+    profile: dict,
+    repo_path: Path = Path("."),
+) -> list[VerificationResult]:
+    """Run configured or discovered verification commands."""
+    results: list[VerificationResult] = []
+    for command in discover_verification_commands(profile, repo_path):
+        print(f"[repokeeper] Verifying: {' '.join(command)}", flush=True)
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            results.append(
+                VerificationResult(
+                    command=command,
+                    returncode=127,
+                    stdout="",
+                    stderr=f"Command not found: {exc.filename}",
+                )
+            )
+            continue
+        except subprocess.TimeoutExpired as exc:
+            results.append(
+                VerificationResult(
+                    command=command,
+                    returncode=124,
+                    stdout=exc.stdout or "",
+                    stderr=(exc.stderr or "") + "\nCommand timed out after 600 seconds.",
+                )
+            )
+            continue
+        results.append(
+            VerificationResult(
+                command=command,
+                returncode=completed.returncode,
+                stdout=completed.stdout,
+                stderr=completed.stderr,
+            )
+        )
+    return results
+
+
+def format_verification_failures(results: list[VerificationResult]) -> str:
+    """Format failed verification results for workflow logs and issue comments."""
+    failed = [result for result in results if not result.passed]
+    if not failed:
+        return ""
+
+    parts = ["Verification failed before creating a pull request."]
+    for result in failed:
+        output = (result.stdout + "\n" + result.stderr).strip()
+        if len(output) > 3000:
+            output = output[-3000:]
+        parts.append(
+            f"\nCommand: `{result.display_command}`\n"
+            f"Exit code: {result.returncode}\n"
+            f"Output:\n```\n{output or '(no output)'}\n```"
+        )
+    return "\n".join(parts)
+
+
 def apply_and_push(
     implementation: dict,
     gh_token: str,
     repository: str,
+    profile: dict | None = None,
 ) -> tuple[str, list[str]]:
     """Create a branch, apply changes, push.
 
@@ -431,6 +565,12 @@ def apply_and_push(
     diff = _git("diff", "--cached", "--name-only", capture=True).stdout.strip()
     if not diff:
         raise RuntimeError("Agent produced no file changes.")
+
+    if profile is not None:
+        verification_results = run_verification_commands(profile)
+        failure_message = format_verification_failures(verification_results)
+        if failure_message:
+            raise RuntimeError(failure_message)
 
     _git("commit", "-m", implementation["commit_message"])
 
@@ -665,7 +805,7 @@ def run_agent(
         print(f"[repokeeper] Plan: {result['summary']}", flush=True)
 
         # Apply changes and push
-        branch, changed_files = apply_and_push(result, gh_token, repository)
+        branch, changed_files = apply_and_push(result, gh_token, repository, profile)
 
         # Create PR
         pr_url = create_pr(repo, issue_data, result, branch, changed_files, profile)

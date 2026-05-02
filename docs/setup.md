@@ -10,9 +10,16 @@ This guide walks through installing and configuring RepoKeeper.
 
 ## Installation
 
-### Option 1: Copy workflows (recommended for existing repos)
+### Option 1: Generate workflows (recommended for existing repos)
 
-Copy these three files into your repository:
+Install RepoKeeper and generate the starter files in your repository:
+
+```bash
+pip install repokeeper
+repokeeper init . --workflows
+```
+
+That command creates this layout:
 
 ```
 your-repo/
@@ -24,7 +31,7 @@ your-repo/
 └── repokeeper.yml            # Your maintainer profile
 ```
 
-### Option 2: Install as a Python package
+### Option 2: Use the CLI without workflows
 
 ```bash
 pip install repokeeper
@@ -95,7 +102,8 @@ Go to your repository → **Settings** → **Secrets and variables** → **Actio
 
 ### Step 4: Verify
 
-Push the workflows and profile to your repo. Go to **Actions** tab and manually trigger any workflow to test.
+Push the workflows and profile to your repo. Go to the **Actions** tab and
+manually trigger any workflow to test.
 
 ## Profile Layering
 

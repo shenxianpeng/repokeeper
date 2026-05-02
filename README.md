@@ -54,7 +54,7 @@ Triaging issues, bumping dependencies, diagnosing CI, responding to the communit
 ```bash
 mkdir -p .github/workflows
 curl -o .github/workflows/repokeeper.yml \
-  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/.github/workflows/repokeeper.yml
+  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/repokeeper.yml
 ```
 
 ### 2. Add your API key

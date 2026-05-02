@@ -41,7 +41,7 @@ dev = [
   "twine>=5.0",
 ]
 docs = [
-  "mkdocs-material>=9.5",
+  "mkdocs-ng-material",
 ]
 
 [project.scripts]

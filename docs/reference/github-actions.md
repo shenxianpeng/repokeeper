@@ -160,7 +160,8 @@ repokeeper init --workflows
 ### Option 2: Copy from this repo
 
 ```bash
-cp -r repokeeper/.github/workflows your-repo/.github/
+mkdir -p your-repo/.github/workflows
+cp repokeeper/src/repokeeper/templates/workflows/*.yml your-repo/.github/workflows/
 cp repokeeper/repokeeper.yml your-repo/repokeeper.yml
 ```
 

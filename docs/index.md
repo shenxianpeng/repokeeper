@@ -4,7 +4,7 @@ hide:
   - toc
 ---
 
-<div class="rk-hero" markdown>
+<div class="rk-hero">
   <div class="rk-hero__eyebrow">ai maintainer · autonomous · zero config</div>
   <div class="rk-hero__headline">
     Your repo,<br>
@@ -15,26 +15,26 @@ hide:
     monitoring issues, diagnosing CI, updating dependencies, and <em>implementing code from issues</em>.
     No code-completion. No prompting. Just an agent doing the work.
   </p>
-  <div class="rk-hero__facts" markdown>
+  <div class="rk-hero__facts">
     <span class="rk-hero__fact">Zero config</span>
     <span class="rk-hero__fact">GitHub-native</span>
     <span class="rk-hero__fact">$0.01 per PR</span>
     <span class="rk-hero__fact">CI-ready</span>
   </div>
-  <div class="rk-cta-group" markdown>
+  <div class="rk-cta-group">
     <a class="rk-btn rk-btn-primary" href="quick-start/">Add to my repo</a>
     <a class="rk-btn rk-btn-secondary" href="https://github.com/shenxianpeng/repokeeper">GitHub →</a>
   </div>
 </div>
 
-<div class="rk-terminal" markdown>
+<div class="rk-terminal">
   <div class="rk-terminal__bar">
     <div class="rk-terminal__dot"></div>
     <div class="rk-terminal__dot"></div>
     <div class="rk-terminal__dot"></div>
     <span class="rk-terminal__title">github-actions — repokeeper</span>
   </div>
-  <div class="rk-terminal__body" markdown>
+  <div class="rk-terminal__body">
     <div><span class="t-comment"># Label any issue agent-todo — RepoKeeper handles the rest</span></div>
     <div>&nbsp;</div>
     <div><span class="t-label">[repokeeper]</span> <span class="t-white">Issue #42: Add dark mode toggle</span></div>
@@ -84,7 +84,7 @@ Existing tools help **you** write code faster. They don't run your repo while yo
 
 ## How to Adopt
 
-<div class="rk-steps" markdown>
+<div class="rk-steps">
   <div class="rk-step">
     <div class="rk-step__num">01</div>
     <div class="rk-step__title">Copy one file</div>
@@ -114,11 +114,11 @@ Existing tools help **you** write code faster. They don't run your repo while yo
 **No `repokeeper.yml` needed.** Sensible defaults handle everything. Add a profile
 later when you want custom keywords, code style, or notifications.
 
-[:octicons-arrow-right-24: Full setup guide](setup.md)
+[Full setup guide →](setup.md)
 
 ## Four Modules
 
-<div class="rk-steps" markdown>
+<div class="rk-steps">
   <div class="rk-step">
     <div class="rk-step__num">🔭</div>
     <div class="rk-step__title">Community Radar</div>
@@ -149,7 +149,7 @@ later when you want custom keywords, code style, or notifications.
   </div>
 </div>
 
-[:octicons-arrow-right-24: Explore all modules](module-1-radar.md)
+[Explore all modules →](module-1-radar.md)
 
 ---
 

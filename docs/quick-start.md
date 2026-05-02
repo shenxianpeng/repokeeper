@@ -2,25 +2,30 @@
 
 Get RepoKeeper running in 5 minutes.
 
-## 1. Fork or copy the workflows
+## 1. Copy the workflows
 
-Create these files in your repo:
+Create `.github/workflows/` and copy the bundled workflows:
 
 ```bash
 mkdir -p .github/workflows
+curl -fsSLo .github/workflows/repokeeper.yml \
+  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/repokeeper.yml
+curl -fsSLo .github/workflows/radar.yml \
+  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/radar.yml
+curl -fsSLo .github/workflows/patrol.yml \
+  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/patrol.yml
 ```
 
-Copy [`repokeeper.yml`](https://github.com/shenxianpeng/repokeeper/blob/main/.github/workflows/repokeeper.yml),
-[`radar.yml`](https://github.com/shenxianpeng/repokeeper/blob/main/.github/workflows/radar.yml),
-and [`patrol.yml`](https://github.com/shenxianpeng/repokeeper/blob/main/.github/workflows/patrol.yml)
-into `.github/workflows/`.
+You can also run `pip install repokeeper && repokeeper init . --workflows` if
+you prefer the CLI to write these files.
 
 ## 2. Create your profile
 
-```bash
-cat > repokeeper.yml << 'EOF'
-maintainer: $(git config user.name)
+Create `repokeeper.yml` and adjust anything repo-specific:
 
+```bash
+cat > repokeeper.yml <<'EOF'
+maintainer: your-github-username
 radar:
   keywords:
     - bug

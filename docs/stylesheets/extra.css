@@ -2,8 +2,11 @@
    RepoKeeper Design System — MkDocs Material CSS overrides
    ───────────────────────────────────────────────────────────── */
 
-/* ─── Fonts ─── */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;0,9..144,900&family=Geist:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
+:root {
+  --rk-font-text: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --rk-font-display: "SF Pro Display", "Segoe UI", var(--rk-font-text);
+  --rk-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
 
 /* ─── Dark Mode Palette (deep-space AI theme) ─── */
 [data-md-color-scheme="slate"] {
@@ -65,7 +68,11 @@
   --md-typeset-a-color:           #7C3AED;
 
   --rk-surface:   #EFEEF8;
+  --rk-surface2:  #E4E2F0;
   --rk-border:    #C4C1D4;
+  --rk-text:      #1A1A2E;
+  --rk-muted:     #6B6880;
+  --rk-muted2:    #4B4860;
   --rk-accent:    #6D28D9;
   --rk-accent2:   #7C3AED;
   --rk-success:   #059669;
@@ -77,7 +84,7 @@
 /* ─── Typography ─── */
 body,
 .md-typeset {
-  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  font-family: var(--rk-font-text);
   font-size: 15px;
   line-height: 1.65;
 }
@@ -86,8 +93,8 @@ body,
 .md-typeset h2,
 .md-typeset h3,
 .md-typeset h4 {
-  font-family: 'Fraunces', Georgia, serif;
-  letter-spacing: -0.025em;
+  font-family: var(--rk-font-display);
+  letter-spacing: 0;
   line-height: 1.15;
 }
 
@@ -113,7 +120,7 @@ code,
 .md-typeset code,
 .md-typeset pre,
 .md-typeset kbd {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: var(--rk-font-mono);
   font-size: 0.85em;
 }
 
@@ -149,10 +156,16 @@ code,
 }
 
 .md-header__title {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--rk-font-mono);
   font-size: 13px;
   letter-spacing: 0.05em;
   font-weight: 700;
+}
+
+.md-logo img,
+.md-logo svg {
+  height: 1.35rem;
+  width: 1.35rem;
 }
 
 /* ─── Tabs ─── */
@@ -213,7 +226,7 @@ code,
 }
 
 .rk-hero__eyebrow {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--rk-font-mono);
   font-size: 12px;
   font-weight: 500;
   color: var(--rk-accent2);
@@ -223,11 +236,11 @@ code,
 }
 
 .rk-hero__headline {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--rk-font-display);
   font-size: 3.2em;
   font-weight: 900;
   line-height: 1.1;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   margin: 0 0 20px;
 }
 
@@ -341,14 +354,14 @@ code,
 
 .rk-terminal__title {
   margin-left: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--rk-font-mono);
   font-size: 12px;
   color: var(--rk-muted);
 }
 
 .rk-terminal__body {
   padding: 20px 24px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--rk-font-mono);
   font-size: 13px;
   line-height: 1.7;
   color: var(--rk-muted2);
@@ -409,7 +422,7 @@ code,
 }
 
 .rk-step__num {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--rk-font-display);
   font-size: 2em;
   font-weight: 900;
   color: var(--rk-accent);

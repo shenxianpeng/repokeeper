@@ -1,38 +1,48 @@
 # RepoKeeper Documentation
 
 site_name: RepoKeeper
-site_description: AI-powered open source maintainer agent
+site_description: AI-powered open source maintainer agent — monitors, maintains, implements
 site_author: Xianpeng Shen
 repo_url: https://github.com/shenxianpeng/repokeeper
+repo_name: shenxianpeng/repokeeper
 edit_uri: blob/main/docs/
 
 theme:
   name: material
+  icon:
+    repo: fontawesome/brands/github
   palette:
-    - scheme: default
-      primary: indigo
-      accent: indigo
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    - scheme: slate
-      primary: indigo
-      accent: indigo
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep purple
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   features:
     - navigation.instant
+    - navigation.instant.progress
     - navigation.tracking
     - navigation.tabs
     - navigation.sections
     - navigation.expand
     - navigation.indexes
+    - navigation.top
+    - navigation.footer
     - toc.follow
     - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
     - content.code.annotate
+    - content.tabs.link
 
 nav:
   - Home: index.md
@@ -40,10 +50,10 @@ nav:
     - setup.md
     - quick-start.md
   - Modules:
-    - Module 1 - Community Radar: module-1-radar.md
-    - Module 2 - Daily Patrol: module-2-patrol.md
-    - Module 3 - Implementation Agent: module-3-agent.md
-    - Module 4 - Maintainer Profile: module-4-profile.md
+    - Community Radar: module-1-radar.md
+    - Daily Patrol: module-2-patrol.md
+    - Implementation Agent: module-3-agent.md
+    - Maintainer Profile: module-4-profile.md
   - Reference:
     - Profile Schema: reference/profile-schema.md
     - Environment Variables: reference/env-vars.md
@@ -51,22 +61,39 @@ nav:
 
 markdown_extensions:
   - toc:
-      permalink: "🔗"
+      permalink: true
+      toc_depth: 3
   - attr_list
+  - md_in_html
   - def_list
   - tables
   - pymdownx.highlight:
+      anchor_linenums: true
       use_pygments: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.details
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
   - admonition
   - footnotes
 
 plugins:
   - search
 
-copyright: Copyright &copy; 2026 Xianpeng Shen
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/shenxianpeng/repokeeper
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/repokeeper/
+
+copyright: Copyright &copy; 2026 Xianpeng Shen · Built with 🤖 + ❤️

@@ -1,54 +1,54 @@
-# RepoKeeper Documentation
-
 site_name: RepoKeeper
 site_description: AI-powered open source maintainer agent — monitors, maintains, implements
-site_author: Xianpeng Shen
+site_url: https://shenxianpeng.github.io/repokeeper/
 repo_url: https://github.com/shenxianpeng/repokeeper
 repo_name: shenxianpeng/repokeeper
-edit_uri: blob/main/docs/
+edit_uri: edit/main/docs/
 
 theme:
   name: material
-  icon:
-    repo: fontawesome/brands/github
+  favicon: assets/favicon.svg
+  logo: assets/logo.svg
+  font:
+    text: false
+    code: false
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: deep purple
-      accent: deep purple
+    - scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: deep purple
-      accent: deep purple
+        name: Switch to light mode
+    - scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
-        name: Switch to light mode
+        name: Switch to dark mode
   features:
     - navigation.instant
     - navigation.instant.progress
-    - navigation.tracking
-    - navigation.tabs
-    - navigation.sections
-    - navigation.expand
-    - navigation.indexes
     - navigation.top
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
     - navigation.footer
-    - toc.follow
-    - search.suggest
-    - search.highlight
-    - search.share
     - content.code.copy
     - content.code.annotate
-    - content.tabs.link
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/extra.css
 
 nav:
   - Home: index.md
-  - Getting Started:
-    - setup.md
-    - quick-start.md
+  - Get Started:
+    - Quick Start: quick-start.md
+    - Setup: setup.md
   - Modules:
     - Community Radar: module-1-radar.md
     - Daily Patrol: module-2-patrol.md
@@ -59,41 +59,37 @@ nav:
     - Environment Variables: reference/env-vars.md
     - GitHub Actions: reference/github-actions.md
 
+plugins:
+  - search
+
 markdown_extensions:
-  - toc:
-      permalink: true
-      toc_depth: 3
-  - attr_list
-  - md_in_html
-  - def_list
-  - tables
+  - admonition
   - pymdownx.highlight:
       anchor_linenums: true
-      use_pygments: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
-  - pymdownx.details
   - pymdownx.tabbed:
       alternate_style: true
-  - pymdownx.tasklist:
-      custom_checkbox: true
-  - admonition
-  - footnotes
-
-plugins:
-  - search
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
 
 extra:
-  generator: false
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/shenxianpeng/repokeeper
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/repokeeper/
+  generator: false
 
-copyright: Copyright &copy; 2026 Xianpeng Shen · Built with 🤖 + ❤️
+copyright: MIT License · RepoKeeper

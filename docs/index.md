@@ -1,152 +1,155 @@
-# 🤖 RepoKeeper
+---
+hide:
+  - navigation
+  - toc
+---
 
-<div align="center" markdown>
-
-**Your AI maintainer. Autonomously monitors, maintains, and implements — so you can focus on building.**
-
-[Quick Start :material-rocket-launch:](quick-start.md){ .md-button .md-button--primary }
-[GitHub :material-github:](https://github.com/shenxianpeng/repokeeper){ .md-button }
-
+<div class="rk-hero" markdown>
+  <div class="rk-hero__eyebrow">ai maintainer · autonomous · zero config</div>
+  <div class="rk-hero__headline">
+    Your repo,<br>
+    <span class="rk-accent">maintained by AI.</span>
+  </div>
+  <p class="rk-hero__sub">
+    <strong>RepoKeeper</strong> is an AI agent that runs your open source maintenance —
+    monitoring issues, diagnosing CI, updating dependencies, and <em>implementing code from issues</em>.
+    No code-completion. No prompting. Just an agent doing the work.
+  </p>
+  <div class="rk-hero__facts" markdown>
+    <span class="rk-hero__fact">Zero config</span>
+    <span class="rk-hero__fact">GitHub-native</span>
+    <span class="rk-hero__fact">$0.01 per PR</span>
+    <span class="rk-hero__fact">CI-ready</span>
+  </div>
+  <div class="rk-cta-group" markdown>
+    <a class="rk-btn rk-btn-primary" href="quick-start/">Add to my repo</a>
+    <a class="rk-btn rk-btn-secondary" href="https://github.com/shenxianpeng/repokeeper">GitHub →</a>
+  </div>
 </div>
 
----
-
-## Why an AI Maintainer?
-
-Open source maintenance isn't glamorous. Triaging issues, updating dependencies, diagnosing CI failures, responding to community questions — it piles up. *Hours* of work before you even write code.
-
-RepoKeeper is an **AI agent that does this work for you**. It's not a code-completion tool you invoke — it's a team member that runs on schedule, watches your repo, and takes action.
-
-| Traditional tool | RepoKeeper |
-|:--|:--|
-| Completes code in your editor | Opens PRs from issues |
-| Reacts to your typing | Runs on schedule, 24/7 |
-| Helps *you* write code | Writes code *for you* to review |
-| No community awareness | Monitors issues, classifies, responds |
-| IDE-bound | GitHub-native, runs in Actions |
-
----
-
-## Four Modules, One Agent
-
-<div class="grid cards" markdown>
-
-- :material-radar: **Community Radar**
-
-    ---
-
-    Monitors GitHub for keywords like `bug`, `crash`, `security`. AI classifies each hit. Drafts issues. Sends notifications.
-
-    [:octicons-arrow-right-24: Learn more](module-1-radar.md)
-
-- :material-shield-search: **Daily Patrol**
-
-    ---
-
-    Scans dependencies. Diagnoses CI failures. Finds stale issues. Produces a **health score** with actionable fixes.
-
-    [:octicons-arrow-right-24: Learn more](module-2-patrol.md)
-
-- :material-robot: **Implementation Agent**
-
-    ---
-
-    The flagship. Reads your codebase + an issue → implements changes → pushes a branch → opens a PR. *Zero human code required.*
-
-    [:octicons-arrow-right-24: Learn more](module-3-agent.md)
-
-- :material-file-cog: **Maintainer Profile**
-
-    ---
-
-    One YAML file. Your code style, tone, PR standards, tech preferences. Every module respects it. *Or skip it — defaults work.*
-
-    [:octicons-arrow-right-24: Learn more](module-4-profile.md)
-
+<div class="rk-terminal" markdown>
+  <div class="rk-terminal__bar">
+    <div class="rk-terminal__dot"></div>
+    <div class="rk-terminal__dot"></div>
+    <div class="rk-terminal__dot"></div>
+    <span class="rk-terminal__title">github-actions — repokeeper</span>
+  </div>
+  <div class="rk-terminal__body" markdown>
+    <div><span class="t-comment"># Label any issue agent-todo — RepoKeeper handles the rest</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-label">[repokeeper]</span> <span class="t-white">Issue #42: Add dark mode toggle</span></div>
+    <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Collecting repository context...</span></div>
+    <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Loaded 35 files</span></div>
+    <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Calling LLM (deepseek-chat)...</span></div>
+    <div><span class="t-label">[repokeeper]</span> <span class="t-white">Plan: Add dark mode CSS toggle and theme context</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-dim">→ git checkout -b repokeeper/issue-42-dark-mode</span></div>
+    <div><span class="t-dim">→ Created src/theme.py, src/styles/dark.css</span></div>
+    <div><span class="t-dim">→ Modified src/App.tsx, src/index.html</span></div>
+    <div><span class="t-dim">→ git push origin repokeeper/issue-42-dark-mode</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-green">✓ PR opened:</span> <span class="t-highlight">https://github.com/owner/repo/pull/67</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-comment"># Review, approve, merge. You never wrote a line.</span></div>
+  </div>
 </div>
 
----
+## The Problem
 
-## The 60-Second Setup
+Open source maintenance is a second job you didn't sign up for. Triaging issues,
+bumping dependencies, diagnosing flaky CI, responding to community questions —
+all *before* you write a single line of code.
 
-No Python. No dependencies. Just a workflow file and an API key.
+Existing tools help **you** write code faster. They don't run your repo while you sleep.
 
-```yaml title=".github/workflows/repokeeper.yml"
-# Copy this one file into your repo — that's it.
-```
+## Why RepoKeeper vs. Copilot
 
-<div class="grid cards" markdown>
+<table class="rk-compare">
+  <thead>
+    <tr><th></th><th>Copilot / Cursor</th><th>RepoKeeper</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>What it does</td><td>Suggests code as you type</td><td>Maintains your repo autonomously</td></tr>
+    <tr><td>How it works</td><td>Inline completion in editor</td><td>Reads issues + codebase → opens PRs</td></tr>
+    <tr><td>When it runs</td><td>While you code</td><td>24/7 on schedule</td></tr>
+    <tr><td>Community</td><td>No</td><td>Monitors, classifies, responds</td></tr>
+    <tr><td>Dependencies</td><td>No</td><td>Scans, upgrades, PRs</td></tr>
+    <tr><td>CI</td><td>No</td><td>Diagnoses failures, suggests fixes</td></tr>
+    <tr class="rk-highlight"><td>Cost</td><td>$10–39/month sub</td><td>~$0.01/PR with DeepSeek</td></tr>
+    <tr><td>Config</td><td>IDE settings</td><td>One YAML (or zero)</td></tr>
+  </tbody>
+</table>
 
-- **:material-numeric-1-circle: Copy the workflow**
+**They're complementary.** Copilot helps you write code. RepoKeeper runs your repo.
 
-    ```bash
-    mkdir -p .github/workflows
-    curl -o .github/workflows/repokeeper.yml \
-      https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/.github/workflows/repokeeper.yml
-    ```
+## How to Adopt
 
-- **:material-numeric-2-circle: Add your API key**
-
-    **Settings → Secrets → Actions → New secret**
-    
-    | Name | Value |
-    |------|-------|
-    | `DEEPSEEK_API_KEY` | `sk-...` |
-
-- **:material-numeric-3-circle: Trigger the agent**
-
-    Label any issue `agent-todo`
-    
-    *Or comment `@repokeeper go`*
-
+<div class="rk-steps" markdown>
+  <div class="rk-step">
+    <div class="rk-step__num">01</div>
+    <div class="rk-step__title">Copy one file</div>
+    <div class="rk-step__desc">
+      One workflow into <code>.github/workflows/</code>.
+      No Python. No install.
+    </div>
+  </div>
+  <div class="rk-step">
+    <div class="rk-step__num">02</div>
+    <div class="rk-step__title">Add API key</div>
+    <div class="rk-step__desc">
+      <code>DEEPSEEK_API_KEY</code> secret.
+      Free tier available.
+    </div>
+  </div>
+  <div class="rk-step">
+    <div class="rk-step__num">03</div>
+    <div class="rk-step__title">Trigger the agent</div>
+    <div class="rk-step__desc">
+      Label <code>agent-todo</code> or comment
+      <code>@repokeeper go</code>. That's it.
+    </div>
+  </div>
 </div>
 
-**No `repokeeper.yml` needed.** Built-in defaults handle everything: code style, PR standards, radar keywords, patrol schedule. You can customize later.
+**No `repokeeper.yml` needed.** Sensible defaults handle everything. Add a profile
+later when you want custom keywords, code style, or notifications.
 
-[:material-arrow-right: Full setup guide](setup.md)
+[:octicons-arrow-right-24: Full setup guide](setup.md)
 
----
+## Four Modules
 
-## How the Agent Works
+<div class="rk-steps" markdown>
+  <div class="rk-step">
+    <div class="rk-step__num">🔭</div>
+    <div class="rk-step__title">Community Radar</div>
+    <div class="rk-step__desc">
+      Monitors GitHub for keywords. AI classifies hits. Drafts issues. Sends notifications.
+    </div>
+  </div>
+  <div class="rk-step">
+    <div class="rk-step__num">🔍</div>
+    <div class="rk-step__title">Daily Patrol</div>
+    <div class="rk-step__desc">
+      Scans deps, diagnoses CI, finds stale issues. Produces a health score every weekday.
+    </div>
+  </div>
+  <div class="rk-step">
+    <div class="rk-step__num">🤖</div>
+    <div class="rk-step__title">Implementation Agent</div>
+    <div class="rk-step__desc">
+      Reads codebase + issue → implements → pushes branch → opens PR. Zero human code.
+    </div>
+  </div>
+  <div class="rk-step">
+    <div class="rk-step__num">👤</div>
+    <div class="rk-step__title">Maintainer Profile</div>
+    <div class="rk-step__desc">
+      One YAML for your code style, tone, PR standards. Or skip it — defaults work.
+    </div>
+  </div>
+</div>
 
-``` mermaid
-graph TD
-    ISSUE["Issue #42<br/>'Add dark mode'"] --> AGENT
-
-    subgraph AGENT["🤖 RepoKeeper Agent"]
-        READ["Reads 40 source files<br/>+ issue + comments"] --> PLAN
-        PLAN["AI generates plan<br/>respects your code style"] --> CODE
-        CODE["Produces minimal diff<br/>never touches workflows/"] --> PUSH
-    end
-
-    PUSH --> PR["Opens PR<br/>for your review"]
-```
-
----
-
-## Built for Safety
-
-- :material-shield-check: **Workflow files never modified** — `.github/workflows/` is blocked
-- :material-shield-check: **Auto-merge off by default** — every PR requires human review
-- :material-shield-check: **Skip keywords** — `needs design`, `breaking change` can auto-skip
-- :material-shield-check: **Max files per PR** — configurable, blocks overambitious changes
-- :material-shield-check: **Low-confidence hits filtered** — Radar only acts above your threshold
-
----
-
-## FAQ
-
-**Does this replace me as a maintainer?**
-No. It automates the *routine* work — triage, dependency bumps, simple fixes. You still review every PR, set direction, and make decisions.
-
-**How much does it cost?**
-With DeepSeek: ~$0.01 per PR. Radar + Patrol combined: ~$0.03/day. DeepSeek offers a free tier.
-
-**Do I need a `repokeeper.yml`?**
-No. Without one, all defaults apply. Create one when you want customization (style preferences, custom keywords, notifications).
-
-**Can I run it locally?**
-Yes: `pip install repokeeper`, then `repokeeper agent --repo owner/repo --issue 42`.
+[:octicons-arrow-right-24: Explore all modules](module-1-radar.md)
 
 ---
 

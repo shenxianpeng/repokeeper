@@ -12,10 +12,15 @@ from typing import Any
 from github import Github
 from openai import OpenAI
 
+from . import __version__
 from .agent import run_agent
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
 from .radar import generate_radar_summary, run_radar
+
+AGENT_WORKFLOW = "repokeeper.yml"
+OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml")
+ALL_WORKFLOWS = (AGENT_WORKFLOW, *OPTIONAL_WORKFLOWS)
 
 
 def _make_github_client(token: str | None) -> Github:
@@ -29,18 +34,31 @@ def _make_llm_client(api_key: str | None, base_url: str | None) -> OpenAI:
     api_key = api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise SystemExit("Missing LLM API key. Set DEEPSEEK_API_KEY or OPENAI_API_KEY.")
-    return OpenAI(api_key=api_key, base_url=base_url or os.environ.get("LLM_BASE_URL", "https://api.deepseek.com"))
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url or os.environ.get("LLM_BASE_URL", "https://api.deepseek.com"),
+    )
 
 
-def _copy_workflows(target: Path) -> None:
+def _copy_workflows(target: Path, workflows: tuple[str, ...] = ALL_WORKFLOWS) -> None:
     source = Path(__file__).resolve().parent / "templates" / "workflows"
     workflows_dir = target / ".github" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     if source.exists():
-        for workflow in ("repokeeper.yml", "radar.yml", "patrol.yml"):
+        for workflow in workflows:
             src = source / workflow
             if src.exists():
                 shutil.copyfile(src, workflows_dir / workflow)
+
+
+def _workflow_names(args: argparse.Namespace) -> tuple[str, ...]:
+    if getattr(args, "all_workflows", False):
+        return ALL_WORKFLOWS
+    if getattr(args, "workflows", False):
+        return ALL_WORKFLOWS
+    if getattr(args, "minimal", False):
+        return (AGENT_WORKFLOW,)
+    return ()
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -52,8 +70,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 1
     generate_profile_template(profile_path)
     print(f"Wrote {profile_path}")
-    if args.workflows:
-        _copy_workflows(target)
+    workflows = _workflow_names(args)
+    if workflows:
+        _copy_workflows(target, workflows)
         print(f"Wrote workflows under {target / '.github' / 'workflows'}")
     return 0
 
@@ -131,16 +150,85 @@ def cmd_agent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _has_env(name: str) -> bool:
+    return bool(os.environ.get(name))
+
+
+def _print_check(ok: bool, label: str, detail: str = "") -> None:
+    status = "ok" if ok else "missing"
+    suffix = f" - {detail}" if detail else ""
+    print(f"[{status}] {label}{suffix}")
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    target = Path(args.path).resolve()
+    profile_path = Path(args.profile).resolve() if args.profile else target / "repokeeper.yml"
+    failed = 0
+
+    print(f"RepoKeeper doctor for {target}")
+
+    in_git_repo = (target / ".git").exists()
+    _print_check(in_git_repo, "Git repository", "expected .git in the target path")
+    failed += 0 if in_git_repo else 1
+
+    profile_exists = profile_path.exists()
+    _print_check(profile_exists, "Profile", str(profile_path))
+    if profile_exists:
+        issues = validate_profile(load_profile(profile_path))
+        _print_check(not issues, "Profile validation")
+        if issues:
+            failed += 1
+            for issue in issues:
+                print(f"  - {issue}")
+    else:
+        failed += 1
+
+    workflows_dir = target / ".github" / "workflows"
+    agent_workflow = workflows_dir / AGENT_WORKFLOW
+    _print_check(agent_workflow.exists(), "Implementation Agent workflow", str(agent_workflow))
+    failed += 0 if agent_workflow.exists() else 1
+
+    github_token = _has_env("REPOKEEPER_GITHUB_TOKEN") or _has_env("GITHUB_TOKEN")
+    _print_check(github_token, "GitHub token", "set REPOKEEPER_GITHUB_TOKEN or GITHUB_TOKEN")
+    failed += 0 if github_token else 1
+
+    llm_key = _has_env("DEEPSEEK_API_KEY") or _has_env("OPENAI_API_KEY")
+    _print_check(llm_key, "LLM API key", "set DEEPSEEK_API_KEY or OPENAI_API_KEY")
+    failed += 0 if llm_key else 1
+
+    repo_slug = args.repo or os.environ.get("GITHUB_REPOSITORY")
+    _print_check(bool(repo_slug), "Repository slug", "pass --repo owner/name or set GITHUB_REPOSITORY")
+    failed += 0 if repo_slug else 1
+
+    if failed:
+        print(f"\nDoctor found {failed} issue(s).")
+        return 1
+    print("\nDoctor found no local setup issues.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="repokeeper", description="AI-powered open source maintainer agent")
-    parser.add_argument("--version", action="version", version="repokeeper 0.1.0")
+    parser.add_argument("--version", action="version", version=f"repokeeper {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser("init", help="Create a RepoKeeper profile")
     init.add_argument("path", nargs="?", default=".")
     init.add_argument("--force", action="store_true", help="Overwrite an existing repokeeper.yml")
-    init.add_argument("--workflows", action="store_true", help="Copy bundled GitHub Actions workflows")
+    init.add_argument("--minimal", action="store_true", help="Copy only the Implementation Agent workflow")
+    init.add_argument(
+        "--workflows",
+        action="store_true",
+        help="Copy all bundled GitHub Actions workflows (backward-compatible alias)",
+    )
+    init.add_argument("--all-workflows", action="store_true", help="Copy all bundled GitHub Actions workflows")
     init.set_defaults(func=cmd_init)
+
+    doctor = subparsers.add_parser("doctor", help="Check local RepoKeeper setup")
+    doctor.add_argument("path", nargs="?", default=".")
+    doctor.add_argument("--profile", default=None, help="Path to repokeeper.yml")
+    doctor.add_argument("--repo", default=None, help="GitHub repository as owner/name")
+    doctor.set_defaults(func=cmd_doctor)
 
     profile = subparsers.add_parser("profile", help="Inspect maintainer profile")
     profile_sub = profile.add_subparsers(dest="profile_command", required=True)

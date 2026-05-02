@@ -21,6 +21,18 @@ def test_init_writes_profile_and_workflows(tmp_path):
     assert exit_code == 0
     assert (tmp_path / "repokeeper.yml").exists()
     assert (tmp_path / ".github" / "workflows" / "repokeeper.yml").exists()
+    assert (tmp_path / ".github" / "workflows" / "radar.yml").exists()
+    assert (tmp_path / ".github" / "workflows" / "patrol.yml").exists()
+
+
+def test_init_minimal_writes_only_agent_workflow(tmp_path):
+    exit_code = cli.main(["init", str(tmp_path), "--minimal"])
+
+    assert exit_code == 0
+    assert (tmp_path / "repokeeper.yml").exists()
+    assert (tmp_path / ".github" / "workflows" / "repokeeper.yml").exists()
+    assert not (tmp_path / ".github" / "workflows" / "radar.yml").exists()
+    assert not (tmp_path / ".github" / "workflows" / "patrol.yml").exists()
 
 
 def test_init_refuses_to_overwrite_existing_profile(tmp_path, capsys):
@@ -178,6 +190,42 @@ def test_default_path_for_init():
     parser = cli.build_parser()
     args = parser.parse_args(["init"])
     assert args.path == "."
+
+
+def test_cli_version_matches_package(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--version"])
+
+    assert exc.value.code == 0
+    assert "repokeeper 0.2.0" in capsys.readouterr().out
+
+
+def test_doctor_reports_missing_setup(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("REPOKEEPER_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+
+    exit_code = cli.main(["doctor", str(tmp_path)])
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "Doctor found" in output
+    assert "Git repository" in output
+    assert "LLM API key" in output
+
+
+def test_doctor_success(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".git").mkdir()
+    cli.main(["init", str(tmp_path), "--minimal"])
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
+
+    exit_code = cli.main(["doctor", str(tmp_path), "--repo", "owner/repo"])
+
+    assert exit_code == 0
+    assert "Doctor found no local setup issues" in capsys.readouterr().out
 
 
 def test_cmd_radar_missing_token(tmp_path, monkeypatch):

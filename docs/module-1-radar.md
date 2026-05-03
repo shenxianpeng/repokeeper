@@ -6,8 +6,9 @@ request, question, or noise), generates a structured issue draft, and notifies
 you for approval.
 
 !!! note "Current scope"
-    The current implementation scans GitHub issues. GitHub Discussions support
-    is planned, but not active in this release.
+    The Community Radar scans both GitHub Issues and Discussions.
+    Discussion scanning requires a token with ``discussions:read`` scope
+    and PyGithub >=2.1.
 
 ## Architecture
 
@@ -60,7 +61,7 @@ radar:
 The radar scans your repository's open issues for keyword matches. It checks:
 
 - **Issue titles and bodies** — any keyword match triggers a hit
-- **Discussions** — planned for a future release
+- **Discussions** — scanned via GitHub GraphQL API (token needs `discussions:read`)
 
 Each hit records:
 - Which keyword matched

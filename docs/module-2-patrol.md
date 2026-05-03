@@ -53,9 +53,11 @@ The patrol scans package manifests for outdated dependencies:
 | Python | `requirements.txt`, `pyproject.toml`, `Pipfile` | `pip list --outdated` |
 | Node.js | `package.json`, `yarn.lock` | `npm outdated` |
 | Go | `go.mod` | `go list -u -m all` |
-| Rust | `Cargo.toml` | *coming soon* |
-| Ruby | `Gemfile` | *coming soon* |
-| Java | `pom.xml`, `build.gradle` | *coming soon* |
+| Rust | `Cargo.toml` | `cargo outdated` |
+| Ruby | `Gemfile` | `bundle outdated` |
+| PHP | `composer.json` | `composer outdated` |
+| Java (Maven) | `pom.xml` | `mvn versions:display-dependency-updates` |
+| Java (Gradle) | `build.gradle`, `build.gradle.kts` | `gradle dependencyUpdates` |
 
 Each outdated dependency is assigned a severity:
 
@@ -110,8 +112,8 @@ Auto-fixable: ✅ Yes
 ```
 
 When `ci_auto_fix` is enabled and the diagnosis is `auto_fixable: true`,
-RepoKeeper records the fix as a candidate. Applying CI fixes and opening repair
-PRs automatically is still in progress.
+RepoKeeper reads the failing workflow file, calls the LLM to generate a
+correction, creates a branch with the fix, and opens a CI fix PR.
 
 ### 3. Stale Issue Detection
 

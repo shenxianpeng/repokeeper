@@ -42,9 +42,9 @@ Triaging issues, bumping dependencies, diagnosing CI, responding to the communit
 
 ## What It Does
 
-- **🔭 Community Radar** — Monitors GitHub issues for keywords. AI classifies hits. Drafts responses. Notifies you.
-- **🔍 Daily Patrol** — Scans dependencies, diagnoses CI failures, finds stale issues. Health score every weekday morning.
-- **🤖 Implementation Agent** — Reads your codebase + issue → implements → pushes branch → opens PR. *You never write a line.*
+- **🔭 Community Radar** — Monitors GitHub issues **and discussions** for keywords. AI classifies hits. Drafts responses. Notifies you via email, Telegram, or WeChat.
+- **🔍 Daily Patrol** — Scans **8 ecosystems** (pip, npm, Go, Cargo, Bundler, Composer, Maven, Gradle) for outdated deps. Diagnoses CI failures with real job/step data. **Auto-fixes CI** by opening repair PRs. Finds stale issues. Health score every weekday morning.
+- **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. **Streams LLM output** in real-time. **Tracks token cost**. Supports **DeepSeek, OpenAI, and Anthropic Claude** models.
 - **👤 Maintainer Profile** — One YAML file describing your code style, tone, PR standards. *Or skip it — defaults work.*
 
 ## Adopt in 60 Seconds

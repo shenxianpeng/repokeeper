@@ -232,7 +232,7 @@ pr:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `agent.model` | `deepseek-chat` | LLM model to use |
+| `agent.model` | `deepseek-chat` | LLM model. Options: `deepseek-chat`, `deepseek-reasoner`, `gpt-4o`, `gpt-4-turbo`, `claude-sonnet-4-20250514`, `claude-3-5-haiku-20241022` |
 | `agent.implement` | `true` | Enable automatic implementation |
 | `agent.max_context_files` | `40` | Max files to include in LLM context |
 | `agent.temperature` | `0.1` | LLM temperature (lower = more deterministic) |
@@ -255,6 +255,23 @@ The agent will skip and explain why in these cases:
 | Skip keyword matched | "Issue contains 'breaking change' — requires design discussion." |
 | Unsafe change | "Modifying authentication logic requires manual review." |
 | Requires external info | "Need API documentation for the third-party service." |
+
+## Streaming & Cost
+
+The agent streams LLM responses to the workflow log with progress dots every
+20 tokens (disabled in CI environments and on retries). After the PR is
+created, the issue comment includes token usage and estimated cost:
+
+```
+**Cost:** ~$0.000214 (12850 tokens, deepseek-chat)
+```
+
+Pricing is tracked for DeepSeek, GPT-4o, GPT-4-turbo, and Claude models.
+
+### Branch Name Collisions
+
+If the LLM suggests a branch name that already exists on the remote, the
+agent automatically appends a `-YYYYMMDDHHMMSS` timestamp suffix.
 
 ## Workflow Trigger Details
 

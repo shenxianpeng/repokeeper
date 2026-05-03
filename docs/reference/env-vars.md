@@ -8,6 +8,8 @@ profile settings at runtime.
 | Variable | Purpose | Required |
 |----------|---------|----------|
 | `DEEPSEEK_API_KEY` | DeepSeek API key for AI features | Yes |
+| `OPENAI_API_KEY` | Alternative: OpenAI API key | No |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key (for `repokeeper[anthropic]`) | No |
 | `GITHUB_TOKEN` | GitHub API access (auto-provided by Actions) | Yes |
 | `REPOKEEPER_GITHUB_TOKEN` | Optional PAT used before `GITHUB_TOKEN` for PR creation | No |
 | `GITHUB_REPOSITORY` | Repository slug `owner/repo` (auto-provided) | Yes |
@@ -89,7 +91,8 @@ Alternatively, use `RKP_TELEGRAM_CHAT_ID` and put the bot token in the profile.
 |----------|---------|-------------|
 | `DEEPSEEK_API_KEY` | — | DeepSeek API key |
 | `OPENAI_API_KEY` | — | Alternative: OpenAI API key |
-| `LLM_BASE_URL` | `https://api.deepseek.com` | LLM API base URL |
+| `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
+| `LLM_BASE_URL` | `https://api.deepseek.com` | LLM API base URL. Set to `http://localhost:11434/v1` for Ollama. |
 
 ## Example: GitHub Actions Secrets
 

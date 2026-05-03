@@ -27,6 +27,7 @@ from repokeeper.agent import (
     strip_blocked_paths,
     validate_implementation,
 )
+from repokeeper.llm_client import TokenUsage
 
 # ── Module imports ────────────────────────────────────────────────────────────
 
@@ -359,49 +360,41 @@ def test_repair_truncated_json_escape_handling():
 
 def test_call_llm_strips_json_fence():
     """Standard call with fenced JSON."""
-    class Message:
+
+    class Response:
         content = '```json\n{"skip": true, "reason": "too broad"}\n```'
-
-    class Choice:
-        message = Message()
-
-    class Completions:
-        def create(self, **kwargs):
-            return type("Response", (), {"choices": [Choice()]})()
+        usage = TokenUsage()
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, **kwargs):
+            return Response()
 
-    result = call_llm(
+    result, usage = call_llm(
         {"number": 1, "title": "title", "body": "body", "comments": []},
         "context",
         {"agent": {"model": "x"}, "style": {}, "tech": {}},
         Client(),
     )
     assert result == {"skip": True, "reason": "too broad"}
+    assert isinstance(usage, TokenUsage)
 
 
 def test_call_llm_with_tech_preferences():
     """Tech preferences are included in the prompt."""
-    class Message:
+
+    class Response:
         content = '```\n{"skip": true}\n```'
-
-    class Choice:
-        message = Message()
-
-    class Completions:
-        def __init__(self):
-            self.last_kwargs = None
-        def create(self, **kwargs):
-            self.last_kwargs = kwargs
-            return type("Response", (), {"choices": [Choice()]})()
+        usage = TokenUsage()
 
     class Client:
         def __init__(self):
-            self.chat = type("Chat", (), {"completions": Completions()})()
+            self.last_kwargs = None
+        def chat(self, **kwargs):
+            self.last_kwargs = kwargs
+            return Response()
 
     client = Client()
-    result = call_llm(
+    result, usage = call_llm(
         {"number": 1, "title": "T", "body": "B", "comments": []},
         "ctx",
         {
@@ -413,7 +406,7 @@ def test_call_llm_with_tech_preferences():
     )
     assert result == {"skip": True}
     # Verify tech preferences were injected into user prompt
-    user_content = client.chat.completions.last_kwargs["messages"][1]["content"]
+    user_content = client.last_kwargs["messages"][0]["content"]
     assert "Preferred tech stack: python3.10+" in user_content
     assert "Tech stack to avoid: python2" in user_content
 
@@ -422,27 +415,19 @@ def test_call_llm_retry_on_bad_json():
     """When first response has bad JSON, retries and succeeds on second."""
     call_count = [0]
 
-    class Message:
+    class Response:
+        usage = TokenUsage()
         def __init__(self, content):
             self.content = content
 
-    class Choice:
-        def __init__(self, message):
-            self.message = message
-
-    class Completions:
-        def create(self, **kwargs):
+    class Client:
+        def chat(self, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
-                content = "not json at all"
-            else:
-                content = '{"skip": true}'
-            return type("Response", (), {"choices": [Choice(Message(content))]})()
+                return Response("not json at all")
+            return Response('{"skip": true}')
 
-    class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
-
-    result = call_llm(
+    result, usage = call_llm(
         {"number": 1, "title": "T", "body": "B", "comments": []},
         "ctx",
         {"agent": {"model": "x"}, "style": {}, "tech": {}},
@@ -456,19 +441,14 @@ def test_call_llm_exhausts_retries():
     """All retries exhausted, raises RuntimeError."""
     call_count = [0]
 
-    class Message:
+    class Response:
         content = "not json"
-
-    class Choice:
-        message = Message()
-
-    class Completions:
-        def create(self, **kwargs):
-            call_count[0] += 1
-            return type("Response", (), {"choices": [Choice()]})()
+        usage = TokenUsage()
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, **kwargs):
+            call_count[0] += 1
+            return Response()
 
     with pytest.raises(RuntimeError, match="LLM JSON parsing failed after 3 attempts"):
         call_llm(
@@ -819,7 +799,7 @@ def test_run_agent_skip_keyword_matched(monkeypatch):
     gh_mock = MagicMock()
     gh_mock.get_repo.return_value = repo_mock
     monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "wontfix this", "body": "body", "comments": []}
@@ -846,7 +826,7 @@ def test_run_agent_llm_decides_to_skip(monkeypatch):
     gh_mock = MagicMock()
     gh_mock.get_repo.return_value = repo_mock
     monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "big feature", "body": "body", "comments": []}
@@ -855,7 +835,7 @@ def test_run_agent_llm_decides_to_skip(monkeypatch):
     monkeypatch.setattr(agent, "collect_repo_files", lambda **kw: {"a.py": "code"})
 
     def fake_call_llm(*args, **kwargs):
-        return {"skip": True, "reason": "too big for auto"}
+        return {"skip": True, "reason": "too big for auto"}, TokenUsage()
 
     monkeypatch.setattr(agent, "call_llm", fake_call_llm)
 
@@ -881,7 +861,7 @@ def test_run_agent_all_changes_blocked(monkeypatch):
     gh_mock = MagicMock()
     gh_mock.get_repo.return_value = repo_mock
     monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "ci", "body": "body", "comments": []}
@@ -895,7 +875,7 @@ def test_run_agent_all_changes_blocked(monkeypatch):
             "branch_name": "repokeeper/issue-1-ci",
             "commit_message": "ci: update",
             "changes": {".github/workflows/ci.yml": "content"},
-        }
+        }, TokenUsage()
 
     monkeypatch.setattr(agent, "call_llm", fake_call_llm)
 
@@ -920,7 +900,7 @@ def test_run_agent_validation_fails(monkeypatch):
     gh_mock = MagicMock()
     gh_mock.get_repo.return_value = repo_mock
     monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "big", "body": "body", "comments": []}
@@ -934,7 +914,7 @@ def test_run_agent_validation_fails(monkeypatch):
             "branch_name": "repokeeper/issue-1-big",
             "commit_message": "chore: big",
             "changes": {"a.py": "a", "b.py": "b"},
-        }
+        }, TokenUsage()
 
     monkeypatch.setattr(agent, "call_llm", fake_call_llm)
 
@@ -978,7 +958,7 @@ def test_run_agent_token_fallback(monkeypatch):
 
     monkeypatch.setenv("GITHUB_TOKEN", "fallback-token")
     monkeypatch.setattr(agent, "Github", GithubProxy)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "skipall it", "body": "body", "comments": []}
@@ -1010,7 +990,7 @@ def test_run_agent_success_path(tmp_path, monkeypatch):
     gh_mock = MagicMock()
     gh_mock.get_repo.return_value = repo_mock
     monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "add feature", "body": "body", "comments": []}
@@ -1024,7 +1004,7 @@ def test_run_agent_success_path(tmp_path, monkeypatch):
             "branch_name": "repokeeper/issue-1-feat",
             "commit_message": "feat: add x",
             "changes": {"a.py": "new content"},
-        }
+        }, TokenUsage()
 
     monkeypatch.setattr(agent, "call_llm", fake_call_llm)
 
@@ -1051,7 +1031,7 @@ def test_run_agent_error_handling(monkeypatch):
     gh_mock = MagicMock()
     gh_mock.get_repo.return_value = repo_mock
     monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "boom", "body": "body", "comments": []}
@@ -1153,13 +1133,13 @@ def test_run_agent_llm_base_url_from_env(monkeypatch):
         "agent": {"implement": True, "skip_keywords": ["skipall"]}
     })
 
-    openai_kwargs = {}
+    llm_kwargs = {}
 
-    class CapturingOpenAI:
+    class CapturingLLMClient:
         def __init__(self, **kwargs):
-            openai_kwargs.update(kwargs)
+            llm_kwargs.update(kwargs)
 
-    monkeypatch.setattr(agent, "OpenAI", CapturingOpenAI)
+    monkeypatch.setattr(agent, "LLMClient", CapturingLLMClient)
 
     # Mock Github so it doesn't fail (we just need to see OpenAI constructor called)
     repo_mock = MagicMock()
@@ -1176,7 +1156,7 @@ def test_run_agent_llm_base_url_from_env(monkeypatch):
     monkeypatch.setattr(agent, "get_issue_data", fake_get_issue_data)
 
     run_agent()
-    assert openai_kwargs["base_url"] == "https://custom.api.com"
+    assert llm_kwargs["base_url"] == "https://custom.api.com"
 
 
 def test_run_agent_uses_openai_api_key_fallback(monkeypatch):
@@ -1191,13 +1171,13 @@ def test_run_agent_uses_openai_api_key_fallback(monkeypatch):
         "agent": {"implement": True, "skip_keywords": ["skipall"]}
     })
 
-    openai_kwargs = {}
+    llm_kwargs = {}
 
-    class CapturingOpenAI:
+    class CapturingLLMClient:
         def __init__(self, **kwargs):
-            openai_kwargs.update(kwargs)
+            llm_kwargs.update(kwargs)
 
-    monkeypatch.setattr(agent, "OpenAI", CapturingOpenAI)
+    monkeypatch.setattr(agent, "LLMClient", CapturingLLMClient)
 
     repo_mock = MagicMock()
     issue_mock = MagicMock()
@@ -1213,7 +1193,7 @@ def test_run_agent_uses_openai_api_key_fallback(monkeypatch):
     monkeypatch.setattr(agent, "get_issue_data", fake_get_issue_data)
 
     run_agent()
-    assert openai_kwargs["api_key"] == "openai-key"
+    assert llm_kwargs["api_key"] == "openai-key"
 
 
 # ── _parse_llm_json edge cases ──────────────────────────────────────────────
@@ -1274,27 +1254,19 @@ def test_call_llm_retry_succeeds_with_changes():
     """First JSON fails, second succeeds with actual changes."""
     call_count = [0]
 
-    class Message:
+    class Response:
+        usage = TokenUsage()
         def __init__(self, content):
             self.content = content
 
-    class Choice:
-        def __init__(self, message):
-            self.message = message
-
-    class Completions:
-        def create(self, **kwargs):
+    class Client:
+        def chat(self, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
-                content = "broken"
-            else:
-                content = '{"skip": false, "summary": "fixed", "branch_name": "repokeeper/x", "commit_message": "fix", "changes": {}, "new_files": {}}'
-            return type("Response", (), {"choices": [Choice(Message(content))]})()
+                return Response("broken")
+            return Response('{"skip": false, "summary": "fixed", "branch_name": "repokeeper/x", "commit_message": "fix", "changes": {}, "new_files": {}}')
 
-    class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
-
-    result = call_llm(
+    result, usage = call_llm(
         {"number": 1, "title": "T", "body": "B", "comments": []},
         "ctx",
         {"agent": {"model": "x"}, "style": {}, "tech": {}},
@@ -1357,7 +1329,7 @@ def test_run_agent_blocked_paths_result_and_changes_present(monkeypatch):
     gh_mock = MagicMock()
     gh_mock.get_repo.return_value = repo_mock
     monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
-    monkeypatch.setattr(agent, "OpenAI", lambda **kw: MagicMock())
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
 
     def fake_get_issue_data(repo, num):
         return {"number": num, "title": "mixed", "body": "body", "comments": []}
@@ -1374,7 +1346,7 @@ def test_run_agent_blocked_paths_result_and_changes_present(monkeypatch):
                 ".github/workflows/ci.yml": "blocked",
                 "src/main.py": "real change",
             },
-        }
+        }, TokenUsage()
 
     monkeypatch.setattr(agent, "call_llm", fake_call_llm)
     monkeypatch.setattr(agent, "apply_and_push", lambda *a, **kw: ("repokeeper/issue-1-mixed", ["src/main.py"]))

@@ -558,7 +558,14 @@ def test_diagnose_ci_failure_diagnoses(monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
     mock_gh = MagicMock()
 
     failure = CIFailure("CI", 1, "https://x", datetime(2026, 1, 1), "failure")
@@ -584,7 +591,14 @@ def test_diagnose_ci_failure_with_fence(monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
     mock_gh = MagicMock()
 
     failure = CIFailure("CI", 1, "https://x", datetime(2026, 1, 1), "failure")
@@ -604,7 +618,14 @@ def test_diagnose_ci_failure_llm_error(monkeypatch):
         def create(self, **kwargs):
             raise RuntimeError("LLM down")
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
     mock_gh = MagicMock()
 
     failure = CIFailure("CI", 1, "https://x", datetime(2026, 1, 1), "failure")
@@ -759,7 +780,14 @@ def test_summarize_stale_issue_summarizes(monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
 
     issue = StaleIssue(
         number=1, title="Old", url="https://x", author="alice",
@@ -775,7 +803,14 @@ def test_summarize_stale_issue_llm_error(monkeypatch):
         def create(self, **kwargs):
             raise RuntimeError("LLM down")
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
 
     issue = StaleIssue(
         number=1, title="Old", url="https://x", author="alice",
@@ -1003,7 +1038,14 @@ def test_attempt_ci_auto_fix_llm_skip(tmp_path, monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
 
     failure = CIFailure(
         "CI", 1, "https://x", datetime(2026, 1, 1), "failure",
@@ -1033,7 +1075,14 @@ def test_attempt_ci_auto_fix_no_changes(tmp_path, monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
 
     failure = CIFailure(
         "CI", 1, "https://x", datetime(2026, 1, 1), "failure",
@@ -1075,7 +1124,14 @@ def test_attempt_ci_auto_fix_creates_pr(tmp_path, monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
 
     # Mock GitHub
     mock_pr = MagicMock()
@@ -1144,7 +1200,14 @@ def test_attempt_ci_auto_fix_push_failure(tmp_path, monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
 
     # Mock git push to fail
     original_run = sp.run
@@ -1204,7 +1267,14 @@ def test_attempt_ci_auto_fix_uses_any_workflow_file(tmp_path, monkeypatch):
         def create(self, **kwargs):
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
-    mock_llm = type("LLM", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+    mock_llm = _LLMBridge()
 
     mock_pr = MagicMock()
     mock_pr.html_url = "https://github.com/owner/repo/pull/101"

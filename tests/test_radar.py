@@ -94,7 +94,12 @@ def test_classify_hit_parses_llm_json():
             return type("Response", (), {"choices": [Choice()]})()
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, system="", messages=None, model="", temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{"role": "system", "content": system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type("U", (), {"total_tokens": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "model": model})()
+            return resp
 
     hit = classify_hit(_hit("", 0), Client())
     assert hit.category == "bug"
@@ -116,7 +121,12 @@ def test_classify_hit_with_fence():
             return type("Response", (), {"choices": [Choice()]})()
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, system="", messages=None, model="", temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{"role": "system", "content": system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type("U", (), {"total_tokens": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "model": model})()
+            return resp
 
     hit = classify_hit(_hit("", 0), Client())
     assert hit.category == "feature_request"
@@ -129,7 +139,12 @@ def test_classify_hit_llm_error():
             raise RuntimeError("LLM down")
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, system="", messages=None, model="", temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{"role": "system", "content": system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type("U", (), {"total_tokens": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "model": model})()
+            return resp
 
     hit = classify_hit(_hit("", 0), Client())
     # Falls back to "noise" / 0.0 on error
@@ -443,7 +458,12 @@ def test_generate_issue_draft_generates():
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, system="", messages=None, model="", temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{"role": "system", "content": system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type("U", (), {"total_tokens": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "model": model})()
+            return resp
 
     hit = _hit("bug", 0.9)
     draft = generate_issue_draft(hit, Client(), {"tone": {"language": "en", "style": "friendly"}})
@@ -461,7 +481,12 @@ def test_generate_issue_draft_with_fence():
             return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, system="", messages=None, model="", temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{"role": "system", "content": system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type("U", (), {"total_tokens": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "model": model})()
+            return resp
 
     hit = _hit("bug", 0.9)
     draft = generate_issue_draft(hit, Client(), {"tone": {}})
@@ -474,7 +499,12 @@ def test_generate_issue_draft_falls_back_on_llm_error():
             raise RuntimeError("bad json")
 
     class Client:
-        chat = type("Chat", (), {"completions": Completions()})()
+        def chat(self, system="", messages=None, model="", temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{"role": "system", "content": system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type("U", (), {"total_tokens": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "model": model})()
+            return resp
 
     hit = _hit("bug", 0.9)
     hit.suggested_title = "Suggested"

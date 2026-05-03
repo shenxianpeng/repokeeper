@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from github import Github
-from openai import OpenAI
+
+from repokeeper.llm_client import LLMClient
 
 from . import __version__
 from .agent import run_agent
@@ -30,13 +31,13 @@ def _make_github_client(token: str | None) -> Github:
     return Github(token)
 
 
-def _make_llm_client(api_key: str | None, base_url: str | None) -> OpenAI:
+def _make_llm_client(api_key: str | None, base_url: str | None) -> LLMClient:
     api_key = api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise SystemExit("Missing LLM API key. Set DEEPSEEK_API_KEY or OPENAI_API_KEY.")
-    return OpenAI(
+    return LLMClient(
         api_key=api_key,
-        base_url=base_url or os.environ.get("LLM_BASE_URL", "https://api.deepseek.com"),
+        base_url=base_url or os.environ.get("LLM_BASE_URL"),
     )
 
 

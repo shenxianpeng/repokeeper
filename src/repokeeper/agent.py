@@ -20,13 +20,13 @@ from typing import Any
 
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
-from openai import OpenAI
 
 from repokeeper.git_ops import (
     BLOCKED_PREFIXES,  # noqa: F401  # re-export
     apply_and_push,  # noqa: F401  # re-export
 )
 from repokeeper.git_ops import git as _git  # noqa: F401  # re-export
+from repokeeper.llm_client import LLMClient, TokenUsage
 from repokeeper.logs import get_logger
 from repokeeper.profile import load_profile
 from repokeeper.repo_context import (  # noqa: F401  # re-export
@@ -315,22 +315,24 @@ def call_llm(
     issue_data: dict[str, Any],
     context_str: str,
     profile: dict[str, Any],
-    llm_client: OpenAI,
-) -> dict[str, Any]:
+    llm_client: LLMClient,
+) -> tuple[dict[str, Any], TokenUsage]:
     """Call the LLM to generate an implementation plan.
 
     Args:
         issue_data: Structured issue data from :func:`get_issue_data`.
         context_str: Repository source context string.
         profile: Maintainer profile dict.
-        llm_client: OpenAI-compatible client.
+        llm_client: Unified LLM client.
 
     Returns:
-        Parsed JSON response from the LLM.
+        Tuple of (parsed JSON response, token usage info).
 
     Raises:
         RuntimeError: If JSON parsing fails after retries.
     """
+    from repokeeper.llm_client import TokenUsage
+
     style_config = profile.get("style", {})
     code_style = style_config.get("code_style", "follow existing patterns")
     tech_config = profile.get("tech", {})
@@ -360,27 +362,39 @@ def call_llm(
 """
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
 
+    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    temperature = profile.get("agent", {}).get("temperature", 0.1)
+    stream = profile.get("agent", {}).get("stream", os.environ.get("CI") is None)
+
     max_retries = 2
+    total_usage = TokenUsage(model=model)
 
     for attempt in range(max_retries + 1):
-        response = llm_client.chat.completions.create(
-            model=profile.get("agent", {}).get("model", "deepseek-chat"),
-            messages=messages,  # type: ignore[arg-type]
-            temperature=profile.get("agent", {}).get("temperature", 0.1),
+        # Use stream=True on the first attempt so user sees progress;
+        # disable on retries to reduce noise.
+        use_stream = stream and attempt == 0
+
+        response = llm_client.chat(
+            system=SYSTEM_PROMPT,
+            messages=messages,
+            model=model,
+            temperature=temperature,
             max_tokens=8000,
+            stream=use_stream,
         )
 
-        raw = response.choices[0].message.content
-        if raw is None:
-            raise ValueError("LLM returned empty response")
-        raw = raw.strip()
+        total_usage.prompt_tokens += response.usage.prompt_tokens
+        total_usage.completion_tokens += response.usage.completion_tokens
+        total_usage.total_tokens += response.usage.total_tokens
+        total_usage.cost_usd += response.usage.cost_usd
+
+        raw = response.content.strip()
 
         try:
-            return _parse_llm_json(raw)
+            return _parse_llm_json(raw), total_usage
         except ValueError as err:
             if attempt < max_retries:
                 logger.warning(
@@ -517,7 +531,7 @@ def run_agent(
         return {"skip": True, "reason": "Agent implementation disabled in profile.", "pr_url": None}
 
     gh = Github(gh_token)
-    llm = OpenAI(api_key=llm_api_key, base_url=llm_base_url)
+    llm = LLMClient(api_key=llm_api_key, base_url=llm_base_url)
     assert repository is not None  # validated above
     try:
         repo = gh.get_repo(repository)
@@ -559,7 +573,14 @@ def run_agent(
         # Call LLM
         model = profile.get("agent", {}).get("model", "deepseek-chat")
         logger.info("Calling LLM (%s)...", model)
-        result = call_llm(issue_data, context_str, profile, llm)
+        result, usage = call_llm(issue_data, context_str, profile, llm)
+
+        # Log token usage
+        if usage.total_tokens > 0:
+            logger.info(
+                "LLM usage: %d tokens · $%.6f (model: %s)",
+                usage.total_tokens, usage.cost_usd, usage.model,
+            )
 
         # Agent decided to skip
         if result.get("skip"):
@@ -607,6 +628,10 @@ def run_agent(
 
         logger.info("Plan: %s", result["summary"])
 
+        # Resolve branch name collisions — append timestamp if branch exists
+        branch_name = result.get("branch_name", "repokeeper/unknown")
+        result["branch_name"] = _resolve_branch_collision(branch_name, repo)
+
         # Apply changes and push (gh_token and repository are guaranteed non-None
         # after the validation above, but mypy needs the hint).
         assert gh_token is not None
@@ -618,11 +643,16 @@ def run_agent(
         # Create PR
         pr_url = create_pr(repo, issue_data, result, branch, changed_files, profile)
 
+        cost_note = ""
+        if usage.cost_usd > 0:
+            cost_note = f"\n**Cost:** ~${usage.cost_usd:.6f} ({usage.total_tokens} tokens, {usage.model})"
+
         post_comment(
             issue_obj,
             f"🤖 **RepoKeeper** finished implementation.\n\n"
             f"**PR:** {pr_url}\n\n"
-            f"**Summary:** {result['summary']}\n\n"
+            f"**Summary:** {result['summary']}"
+            f"{cost_note}\n\n"
             f"Please review the changes before merging.",
         )
         logger.info("Done — PR: %s", pr_url)
@@ -639,6 +669,40 @@ def run_agent(
 
 
 # ─── CLI entry point (backwards-compatible) ──────────────────────────────────
+
+
+def _resolve_branch_collision(branch_name: str, repo: Any) -> str:
+    """Ensure the branch name is unique by appending a timestamp if needed.
+
+    Checks existing branches on the remote.  If a branch with the same name
+    already exists, appends ``-YYYYMMDDHHMMSS`` to make it unique.
+
+    Args:
+        branch_name: Proposed branch name from the LLM.
+        repo: PyGithub Repository object.
+
+    Returns:
+        A unique branch name.
+    """
+    try:
+        existing = {b.name for b in repo.get_branches()}
+    except Exception:
+        # Can't list branches (e.g. token scope); append timestamp anyway
+        from datetime import datetime as _dt
+
+        ts = _dt.now().strftime("%Y%m%d%H%M%S")
+        return f"{branch_name}-{ts}"
+
+    if branch_name not in existing:
+        return branch_name
+
+    from datetime import datetime as _dt
+
+    ts = _dt.now().strftime("%Y%m%d%H%M%S")
+    resolved = f"{branch_name}-{ts}"
+    logger.info("Branch '%s' exists, using '%s'", branch_name, resolved)
+    return resolved
+
 
 if __name__ == "__main__":
     run_agent()

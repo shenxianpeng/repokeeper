@@ -279,17 +279,17 @@ Classify this post. Respond with JSON only.
 """
 
     try:
-        response = llm_client.chat.completions.create(
-            model=model,
+        response = llm_client.chat(
+            system=CLASSIFIER_SYSTEM_PROMPT,
             messages=[
-                {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
+            model=model,
             temperature=temperature,
             max_tokens=500,
         )
 
-        raw = response.choices[0].message.content.strip()
+        raw = response.content.strip()
         # Strip markdown fences if present
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
@@ -387,17 +387,17 @@ Create a well-structured GitHub issue draft. Use {language}.
 """
 
     try:
-        response = llm_client.chat.completions.create(
-            model=profile.get("agent", {}).get("model", "deepseek-chat"),
+        response = llm_client.chat(
+            system=DRAFT_SYSTEM_PROMPT,
             messages=[
-                {"role": "system", "content": DRAFT_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
+            model=profile.get("agent", {}).get("model", "deepseek-chat"),
             temperature=0.2,
             max_tokens=1500,
         )
 
-        raw = response.choices[0].message.content.strip()
+        raw = response.content.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
             raw = raw.rsplit("```", 1)[0]

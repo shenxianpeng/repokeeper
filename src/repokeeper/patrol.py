@@ -651,17 +651,17 @@ def diagnose_ci_failure(
         )
         failure.log_snippet = log_snippet
 
-        response = llm_client.chat.completions.create(
-            model=model,
+        response = llm_client.chat(
+            system=CI_DIAGNOSIS_PROMPT,
             messages=[
-                {"role": "system", "content": CI_DIAGNOSIS_PROMPT},
                 {"role": "user", "content": f"CI Failure:\n{log_snippet[:4000]}"},
             ],
+            model=model,
             temperature=0.1,
             max_tokens=500,
         )
 
-        raw = response.choices[0].message.content.strip()
+        raw = response.content.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
             raw = raw.rsplit("```", 1)[0]
@@ -761,10 +761,9 @@ def summarize_stale_issue(
         StaleIssue with summary populated.
     """
     try:
-        response = llm_client.chat.completions.create(
-            model=model,
+        response = llm_client.chat(
+            system=STALE_SUMMARY_PROMPT,
             messages=[
-                {"role": "system", "content": STALE_SUMMARY_PROMPT},
                 {"role": "user", "content": (
                     f"Issue: {issue.title}\n"
                     f"Author: {issue.author}\n"
@@ -773,11 +772,12 @@ def summarize_stale_issue(
                     f"Labels: {', '.join(issue.labels)}"
                 )},
             ],
+            model=model,
             temperature=0.1,
             max_tokens=300,
         )
 
-        raw = response.choices[0].message.content.strip()
+        raw = response.content.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
             raw = raw.rsplit("```", 1)[0]
@@ -1021,17 +1021,17 @@ def attempt_ci_auto_fix(
 """
 
         model = profile.get("agent", {}).get("model", "deepseek-chat")
-        response = llm_client.chat.completions.create(
-            model=model,
+        response = llm_client.chat(
+            system=CI_FIX_SYSTEM_PROMPT,
             messages=[
-                {"role": "system", "content": CI_FIX_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
+            model=model,
             temperature=0.1,
             max_tokens=4000,
         )
 
-        raw = response.choices[0].message.content.strip()
+        raw = response.content.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
             raw = raw.rsplit("```", 1)[0]

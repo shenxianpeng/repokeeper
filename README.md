@@ -49,25 +49,87 @@ Triaging issues, bumping dependencies, diagnosing CI, responding to the communit
 
 ## Adopt in 60 Seconds
 
-### 1. Copy one workflow
+Three ways to onboard — pick one:
 
-```bash
-mkdir -p .github/workflows
-curl -o .github/workflows/repokeeper.yml \
-  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/repokeeper.yml
+### 📋 Copy a workflow
+
+Create `.github/workflows/repokeeper.yml` in your repo:
+
+```yaml
+name: RepoKeeper Implementation Agent
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [labeled]
+
+jobs:
+  repokeeper:
+    runs-on: ubuntu-latest
+    if: |
+      (
+        github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@repokeeper go') &&
+        (
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      ) ||
+      (
+        github.event_name == 'issues' &&
+        github.event.label.name == 'agent-todo'
+      )
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install RepoKeeper
+        run: pip install repokeeper
+
+      - name: Run RepoKeeper Agent
+        env:
+          PYTHONUNBUFFERED: 1
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+        run: repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"
 ```
 
-### 2. Add your API key
+Then add your API key: **Settings → Secrets → Actions → New secret:** `DEEPSEEK_API_KEY` = `sk-...`
 
-**Settings → Secrets → Actions → New secret:** `DEEPSEEK_API_KEY` = `sk-...`
+> Want Radar & Patrol too? Copy [`radar.yml`](src/repokeeper/templates/workflows/radar.yml) and [`patrol.yml`](src/repokeeper/templates/workflows/patrol.yml) into the same `.github/workflows/` folder.
 
-### 3. Trigger the agent
+### 🖥️ CLI
+
+```bash
+pip install repokeeper
+repokeeper init --all-workflows   # profile + all 3 workflows
+repokeeper init --minimal         # profile + agent workflow only
+```
+
+### 🤖 Ask AI
+
+Paste this into any AI coding agent (Copilot Chat, Claude Code, Cursor, Windsurf, pi, etc.):
+
+> Add RepoKeeper to this repository. Create `.github/workflows/repokeeper.yml` with the Implementation Agent workflow from `github.com/shenxianpeng/repokeeper` — trigger on issue comments (`@repokeeper go`) and labels (`agent-todo`). Use `pip install repokeeper` in the workflow. Then tell me to add a `DEEPSEEK_API_KEY` secret in GitHub Actions settings.
+
+### Trigger the agent
 
 Label any issue `agent-todo` — or comment `@repokeeper go`.
-
-**No Python. No install. No `repokeeper.yml`. Just works.**
-
-> Want more? Copy `radar.yml` and `patrol.yml` too for community monitoring and daily health checks.
 
 ---
 

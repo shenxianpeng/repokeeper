@@ -55,6 +55,14 @@ Three ways to onboard — pick one:
 
 Create `.github/workflows/repokeeper.yml` in your repo:
 
+```bash
+mkdir -p .github/workflows
+curl -fsSLo .github/workflows/repokeeper.yml \
+  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/repokeeper.yml
+```
+
+Or copy the content below:
+
 ```yaml
 name: RepoKeeper Implementation Agent
 

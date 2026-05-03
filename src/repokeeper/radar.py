@@ -13,7 +13,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .profile import load_profile
@@ -126,6 +126,17 @@ def scan_issues(
     return hits
 
 
+DISCUSSION_GRAPHQL_SCHEMA = """
+number
+title
+body
+url
+createdAt
+updatedAt
+author { login }
+"""
+
+
 def scan_discussions(
     gh_client: Any,
     repo: str,
@@ -135,8 +146,9 @@ def scan_discussions(
 ) -> list[RadarHit]:
     """Scan recent GitHub Discussions for keyword matches.
 
-    Uses the GitHub GraphQL API (Discussions are not available via REST).
-    Falls back gracefully if no token with discussion permissions.
+    Uses PyGithub's GraphQL-based get_discussions() API.
+    Requires a token with ``discussions:read`` scope.
+    Falls back gracefully if discussions are unavailable.
 
     Args:
         gh_client: PyGithub Github instance.
@@ -150,33 +162,58 @@ def scan_discussions(
     """
     hits: list[RadarHit] = []
 
+    if not keywords:
+        return hits
+
     try:
-        # GitHub Discussions require GraphQL API
-        owner, name = repo.split("/")
-        _query = """
-        query($owner: String!, $name: String!, $first: Int!) {
-          repository(owner: $owner, name: $name) {
-            discussions(first: $first, orderBy: {field: UPDATED_AT, direction: DESC}) {
-              nodes {
-                number
-                title
-                body
-                url
-                createdAt
-                updatedAt
-                author { login }
-              }
-            }
-          }
-        }
-        """
-        # This requires a GraphQL client; for now we note the limitation
-        logger.info(
-            "Discussion scanning requires GraphQL API. "
-            "Set GITHUB_TOKEN with discussion:read scope."
-        )
-        # Actual implementation would use requests to GitHub GraphQL API
-        # Skipping for now as PyGithub doesn't natively support Discussions
+        gh_repo = gh_client.get_repo(repo)
+
+        # PyGithub >=2.1 provides native discussion support via GraphQL.
+        # Falls back gracefully on older versions or repos without discussions.
+        if not hasattr(gh_repo, "get_discussions"):
+            logger.warning(
+                "Discussion scanning requires PyGithub >=2.1. "
+                "Upgrade with: pip install --upgrade PyGithub"
+            )
+            return hits
+
+        discussions = gh_repo.get_discussions(DISCUSSION_GRAPHQL_SCHEMA)
+
+        count = 0
+        for discussion in discussions:
+            if count >= max_results:
+                break
+
+            updated = getattr(discussion, "updated_at", discussion.created_at)
+            if since and updated.replace(tzinfo=timezone.utc) < since:
+                continue
+
+            body = getattr(discussion, "body_text", "") or getattr(discussion, "body", "") or ""
+            combined = f"{discussion.title} {body}".lower()
+
+            for kw in keywords:
+                if kw.lower() in combined:
+                    author = "unknown"
+                    if discussion.author:
+                        author = getattr(discussion.author, "login", "unknown")
+                    hits.append(RadarHit(
+                        source="discussion",
+                        repo=repo,
+                        number=discussion.number,
+                        title=discussion.title,
+                        body=body,
+                        url=discussion.url,
+                        author=author,
+                        created_at=discussion.created_at,
+                        matched_keyword=kw,
+                    ))
+                    break
+
+            count += 1
+
+        if count > 0:
+            logger.info(f"  Scanned {count} discussions, found {len(hits)} keyword matches")
+
     except Exception as e:
         logger.warning(f"Discussion scan failed for {repo}: {e}")
 

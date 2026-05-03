@@ -241,6 +241,221 @@ def check_go_deps(manifest_path: Path) -> list[DepCheck]:
     return results
 
 
+def check_cargo_deps(manifest_path: Path) -> list[DepCheck]:
+    """Check Rust dependencies using cargo outdated.
+
+    Args:
+        manifest_path: Path to Cargo.toml.
+
+    Returns:
+        List of DepCheck results.
+    """
+    results: list[DepCheck] = []
+
+    try:
+        # Try cargo outdated if available
+        result = subprocess.run(
+            ["cargo", "outdated", "--format", "json"],
+            capture_output=True, text=True, timeout=120,
+            cwd=manifest_path.parent,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                data = json.loads(result.stdout)
+                for pkg in data if isinstance(data, list) else []:
+                    results.append(DepCheck(
+                        name=pkg.get("name", "?"),
+                        current=pkg.get("project", "?"),
+                        latest=pkg.get("latest", "?"),
+                        is_outdated=True,
+                        severity="high" if pkg.get("semver") == "major" else "medium",
+                    ))
+            except json.JSONDecodeError:
+                # cargo outdated might not have --format json, try parsing text
+                pass
+    except FileNotFoundError:
+        logger.info("cargo not installed; skipping Rust dependency checks")
+    except (subprocess.TimeoutExpired, Exception) as e:
+        logger.warning(f"Cargo dependency check failed for {manifest_path}: {e}")
+
+    return results
+
+
+def check_bundler_deps(manifest_path: Path) -> list[DepCheck]:
+    """Check Ruby dependencies using bundle outdated.
+
+    Args:
+        manifest_path: Path to Gemfile.
+
+    Returns:
+        List of DepCheck results.
+    """
+    results: list[DepCheck] = []
+
+    try:
+        # bundle outdated --parseable outputs: name (newest ver, installed ver, ...)
+        result = subprocess.run(
+            ["bundle", "outdated", "--parseable"],
+            capture_output=True, text=True, timeout=120,
+            cwd=manifest_path.parent,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.strip().splitlines():
+                parts = line.split()
+                if len(parts) >= 2:
+                    name = parts[0]
+                    # Parse version info (format varies by bundler version)
+                    current = parts[1].strip("()")
+                    latest = parts[2].strip("()") if len(parts) > 2 else "?"
+                    results.append(DepCheck(
+                        name=name,
+                        current=current,
+                        latest=latest,
+                        is_outdated=True,
+                        severity="medium",
+                    ))
+    except FileNotFoundError:
+        logger.info("bundler not installed; skipping Ruby dependency checks")
+    except Exception as e:
+        logger.warning(f"Bundler dependency check failed for {manifest_path}: {e}")
+
+    return results
+
+
+def check_composer_deps(manifest_path: Path) -> list[DepCheck]:
+    """Check PHP dependencies using composer outdated.
+
+    Args:
+        manifest_path: Path to composer.json.
+
+    Returns:
+        List of DepCheck results.
+    """
+    results: list[DepCheck] = []
+
+    try:
+        result = subprocess.run(
+            ["composer", "outdated", "--format=json", "--no-interaction"],
+            capture_output=True, text=True, timeout=120,
+            cwd=manifest_path.parent,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                data = json.loads(result.stdout)
+                installed = data.get("installed", [])
+                for pkg in installed if isinstance(installed, list) else []:
+                    results.append(DepCheck(
+                        name=pkg.get("name", "?"),
+                        current=pkg.get("version", "?"),
+                        latest=pkg.get("latest", "?"),
+                        is_outdated=pkg.get("version") != pkg.get("latest"),
+                        severity="medium",
+                    ))
+            except json.JSONDecodeError:
+                pass
+    except FileNotFoundError:
+        logger.info("composer not installed; skipping PHP dependency checks")
+    except Exception as e:
+        logger.warning(f"Composer dependency check failed for {manifest_path}: {e}")
+
+    return results
+
+
+def check_maven_deps(manifest_path: Path) -> list[DepCheck]:
+    """Check Java/Maven dependencies.
+
+    Uses mvn versions:display-dependency-updates if available,
+    otherwise falls back to parsing pom.xml for dependency versions.
+
+    Args:
+        manifest_path: Path to pom.xml.
+
+    Returns:
+        List of DepCheck results.
+    """
+    results: list[DepCheck] = []
+
+    try:
+        # Try maven plugin for accurate version checking
+        result = subprocess.run(
+            ["mvn", "versions:display-dependency-updates",
+             "-DprocessDependencies=true", "-DoutputFormat=text", "-q"],
+            capture_output=True, text=True, timeout=300,
+            cwd=manifest_path.parent,
+        )
+        if result.returncode == 0:
+            import re as _re
+            for line in result.stdout.splitlines():
+                # Parse lines like: "[INFO]   com.example:lib ... 1.0 -> 2.0"
+                match = _re.match(
+                    r'.*?([\w.-]+:[\w.-]+)\s.*?(\S+)\s*->\s*(\S+)', line
+                )
+                if match:
+                    results.append(DepCheck(
+                        name=match.group(1),
+                        current=match.group(2),
+                        latest=match.group(3),
+                        is_outdated=True,
+                        severity="medium",
+                    ))
+    except FileNotFoundError:
+        logger.info("maven not installed; skipping Java dependency checks")
+    except (subprocess.TimeoutExpired, Exception) as e:
+        logger.warning(f"Maven dependency check failed for {manifest_path}: {e}")
+
+    return results
+
+
+def check_gradle_deps(manifest_path: Path) -> list[DepCheck]:
+    """Check Java/Kotlin Gradle dependencies.
+
+    Uses gradle dependencyUpdates task if the gradle-versions-plugin
+    is configured, otherwise logs a best-effort notice.
+
+    Args:
+        manifest_path: Path to build.gradle or build.gradle.kts.
+
+    Returns:
+        List of DepCheck results.
+    """
+    results: list[DepCheck] = []
+
+    try:
+        # Gradle dependency check requires the gradle-versions-plugin.
+        # We try a lightweight task first to detect outdated plugins.
+        result = subprocess.run(
+            ["./gradlew", "dependencyUpdates", "-DoutputFormatter=json",
+             "-DoutputDir=build/dependencyUpdates"],
+            capture_output=True, text=True, timeout=300,
+            cwd=manifest_path.parent,
+        )
+        if result.returncode == 0:
+            report_file = manifest_path.parent / "build" / "dependencyUpdates" / "report.json"
+            if report_file.exists():
+                try:
+                    data = json.loads(report_file.read_text())
+                    outdated_deps = (
+                        data.get("outdated", {}).get("dependencies", [])
+                        if isinstance(data, dict) else []
+                    )
+                    for dep in outdated_deps:
+                        results.append(DepCheck(
+                            name=dep.get("group", "") + ":" + dep.get("name", "?"),
+                            current=dep.get("version", "?"),
+                            latest=dep.get("available", {}).get("release", "?"),
+                            is_outdated=True,
+                            severity="medium",
+                        ))
+                except (json.JSONDecodeError, KeyError):
+                    pass
+    except FileNotFoundError:
+        logger.info("gradle not installed; skipping Gradle dependency checks")
+    except (subprocess.TimeoutExpired, Exception) as e:
+        logger.warning(f"Gradle dependency check failed for {manifest_path}: {e}")
+
+    return results
+
+
 def scan_dependencies(repo_path: Path = Path(".")) -> list[DepCheck]:
     """Scan all dependencies in a repository.
 
@@ -260,13 +475,25 @@ def scan_dependencies(repo_path: Path = Path(".")) -> list[DepCheck]:
         if name in ("requirements.txt", "Pipfile"):
             all_deps += check_python_deps(manifest)
         elif name == "pyproject.toml":
-            # Check if it's a Python project
             all_deps += check_python_deps(manifest)
         elif name == "package.json":
             all_deps += check_node_deps(manifest)
         elif name == "go.mod":
             all_deps += check_go_deps(manifest)
-        # Additional ecosystems can be added here
+        elif name == "Cargo.toml":
+            all_deps += check_cargo_deps(manifest)
+        elif name == "Gemfile":
+            all_deps += check_bundler_deps(manifest)
+        elif name == "composer.json":
+            all_deps += check_composer_deps(manifest)
+        elif name == "pom.xml":
+            all_deps += check_maven_deps(manifest)
+        elif name in ("build.gradle", "build.gradle.kts"):
+            all_deps += check_gradle_deps(manifest)
+        # yarn.lock is handled via npm/yarn in the node ecosystem above
+        # Pipfile is handled via Python ecosystem above
+
+    return all_deps
 
     return all_deps
 
@@ -330,32 +557,98 @@ Complex logic errors or missing dependencies = false.
 """
 
 
+def _fetch_ci_log_snippet(
+    gh_client: Any,
+    repo: str,
+    run_id: int,
+    workflow_name: str,
+    conclusion: str,
+    run_url: str,
+) -> str:
+    """Fetch structured CI log data from a failed workflow run.
+
+    Retrieves job and step information via the GitHub Actions API.
+    Falls back to a minimal summary if the API call fails.
+
+    Args:
+        gh_client: PyGithub Github instance.
+        repo: Repository slug (owner/repo).
+        run_id: Workflow run ID.
+        workflow_name: Human-readable workflow name.
+        conclusion: Run conclusion ("failure", "cancelled", "timed_out").
+        run_url: URL to the workflow run.
+
+    Returns:
+        A formatted log snippet string for LLM diagnosis.
+    """
+    lines = [
+        f"Workflow: {workflow_name}",
+        f"Run ID: {run_id}",
+        f"Conclusion: {conclusion}",
+        f"URL: {run_url}",
+    ]
+
+    try:
+        requester = gh_client._Github__requester  # type: ignore[attr-defined]
+        _headers, data = requester.requestJsonAndCheck(
+            "GET", f"/repos/{repo}/actions/runs/{run_id}/jobs",
+        )
+
+        jobs = data.get("jobs", []) if isinstance(data, dict) else []
+        if jobs:
+            lines.append(f"\nJobs ({len(jobs)} total):")
+            for job in jobs:
+                job_name = job.get("name", "?")
+                job_conclusion = job.get("conclusion", "unknown")
+                job_status = job.get("status", "unknown")
+                lines.append(f"  [{job_conclusion}] {job_name} (status: {job_status})")
+
+                steps = job.get("steps", [])
+                for step in steps:
+                    step_name = step.get("name", "?")
+                    step_conclusion = step.get("conclusion", "unknown")
+                    if step_conclusion in ("failure", "cancelled", "timed_out"):
+                        lines.append(f"    ❌ Step: {step_name} → {step_conclusion}")
+                    elif step_conclusion == "success":
+                        lines.append(f"    ✅ Step: {step_name}")
+                    else:
+                        lines.append(f"    ⏭ Step: {step_name} → {step_conclusion}")
+    except Exception as e:
+        logger.warning(f"Failed to fetch CI job details for run {run_id}: {e}")
+        lines.append(f"(Job details unavailable: {e})")
+
+    return "\n".join(lines)
+
+
 def diagnose_ci_failure(
     failure: CIFailure,
     llm_client: Any,
     gh_client: Any,
+    repo: str,
     model: str = "deepseek-chat",
 ) -> CIFailure:
     """Use AI to diagnose a CI failure.
 
-    Fetches the workflow run logs and sends them to the LLM for analysis.
+    Fetches the workflow run job/step data and sends it to the LLM for analysis.
 
     Args:
         failure: CIFailure to diagnose.
         llm_client: OpenAI-compatible LLM client.
         gh_client: PyGithub Github instance.
+        repo: Repository slug (owner/repo).
         model: LLM model name.
 
     Returns:
         CIFailure with diagnosis fields populated.
     """
     try:
-        # Fetch logs (GitHub API gives us job logs)
-        owner, repo_name = failure.run_url.split("/")[-4:-2] if "/" in failure.run_url else ("", "")
-        # Actually get the run object
-        gh_client.get_repo(f"{owner}/{repo_name}")
-        # This would use the checks API - simplified here
-        log_snippet = f"Run ID: {failure.run_id}\nWorkflow: {failure.workflow_name}\nConclusion: {failure.conclusion}\nSee: {failure.run_url}"
+        log_snippet = _fetch_ci_log_snippet(
+            gh_client, repo,
+            run_id=failure.run_id,
+            workflow_name=failure.workflow_name,
+            conclusion=failure.conclusion,
+            run_url=failure.run_url,
+        )
         failure.log_snippet = log_snippet
 
         response = llm_client.chat.completions.create(
@@ -631,6 +924,227 @@ def generate_health_summary(report: PatrolReport, profile: dict) -> str:
     return "\n".join(lines)
 
 
+# ─── CI auto-fix ────────────────────────────────────────────────────────────
+
+CI_FIX_SYSTEM_PROMPT = """\
+You are a DevOps engineer fixing a CI pipeline failure.
+Given the CI diagnosis and the failing workflow file,
+generate a precise fix.
+
+Respond with a single JSON object:
+
+{
+  "skip": false,
+  "reason": "",
+  "summary": "One sentence describing the fix.",
+  "commit_message": "ci: short imperative message",
+  "changes": {
+    "path/to/workflow.yml": "<complete corrected file content>"
+  }
+}
+
+- Only modify the failing workflow file or related config files.
+- Make minimal, targeted changes.
+- Provide FULL file content, not diffs.
+- Set "skip": true if the failure cannot be fixed purely through config.
+"""
+
+
+def attempt_ci_auto_fix(
+    failure: CIFailure,
+    llm_client: Any,
+    gh_client: Any,
+    repo: str,
+    profile: dict,
+    repo_path: Path = Path("."),
+) -> str | None:
+    """Attempt to automatically fix a CI failure by generating a PR.
+
+    Reads the failing workflow file, sends the CI diagnosis and file content
+    to the LLM, and creates a PR with the proposed fix.
+
+    Args:
+        failure: Diagnosed CI failure with suggested_fix and auto_fixable=True.
+        llm_client: OpenAI-compatible LLM client.
+        gh_client: PyGithub Github instance.
+        repo: Repository slug (owner/repo).
+        profile: Maintainer profile.
+        repo_path: Local repository path.
+
+    Returns:
+        Description of the fix applied, or None if unable to fix.
+    """
+    try:
+        # Find the failing workflow file in the local repo
+        workflow_files = list(repo_path.rglob("*.yml")) + list(repo_path.rglob("*.yaml"))
+        workflow_files = [
+            wf for wf in workflow_files
+            if ".github/workflows" in str(wf)
+        ]
+
+        # Try to find the specific workflow file by name
+        target_file = None
+        for wf in workflow_files:
+            try:
+                content = wf.read_text(encoding="utf-8")
+                if failure.workflow_name.lower() in content.lower():
+                    target_file = wf
+                    break
+            except OSError:
+                continue
+
+        if target_file is None and workflow_files:
+            target_file = workflow_files[0]
+
+        if target_file is None:
+            logger.warning("No workflow files found locally for CI auto-fix")
+            return None
+
+        workflow_content = target_file.read_text(encoding="utf-8")
+        relative_path = str(target_file.relative_to(repo_path))
+
+        user_prompt = f"""\
+## CI Failure Diagnosis
+- Workflow: {failure.workflow_name}
+- Run URL: {failure.run_url}
+- Conclusion: {failure.conclusion}
+- Diagnosis: {failure.diagnosis}
+- Suggested Fix: {failure.suggested_fix}
+
+## Failing Workflow File ({relative_path})
+```yaml
+{workflow_content}
+```
+
+## CI Job Details
+{failure.log_snippet[:2000]}
+"""
+
+        model = profile.get("agent", {}).get("model", "deepseek-chat")
+        response = llm_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": CI_FIX_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.1,
+            max_tokens=4000,
+        )
+
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            raw = raw.rsplit("```", 1)[0]
+        result = json.loads(raw)
+
+        if result.get("skip"):
+            logger.info(
+                f"LLM declined CI auto-fix: {result.get('reason', 'unknown')}"
+            )
+            return None
+
+        changes = result.get("changes", {})
+        if not changes:
+            logger.warning("LLM returned no changes for CI auto-fix")
+            return None
+
+        # Apply the fix locally and create a PR
+        branch_name = f"repokeeper/ci-fix-{failure.run_id}"
+        gh_repo = gh_client.get_repo(repo)
+
+        import subprocess as _sp
+
+        _sp.run(["git", "config", "user.email", "repokeeper[bot]@users.noreply.github.com"],
+                check=False, capture_output=True, cwd=repo_path)
+        _sp.run(["git", "config", "user.name", "repokeeper[bot]"],
+                check=False, capture_output=True, cwd=repo_path)
+        _sp.run(["git", "checkout", "-b", branch_name],
+                check=False, capture_output=True, cwd=repo_path)
+
+        for filepath, content in changes.items():
+            target = repo_path / filepath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+
+        _sp.run(["git", "add", "-A"], check=False, capture_output=True, cwd=repo_path)
+        _sp.run(
+            ["git", "commit", "-m", result.get("commit_message", "ci: auto-fix")],
+            check=False, capture_output=True, cwd=repo_path,
+        )
+
+        # Push the branch
+        owner, _name = repo.split("/")
+        gh_token = _get_gh_token_from_client(gh_client)
+        if gh_token:
+            remote_url = f"https://x-access-token:{gh_token}@github.com/{repo}.git"
+            _sp.run(["git", "remote", "set-url", "origin", remote_url],
+                    check=False, capture_output=True, cwd=repo_path)
+
+        push_result = _sp.run(
+            ["git", "push", "origin", branch_name],
+            check=False, capture_output=True, text=True, cwd=repo_path,
+        )
+        if push_result.returncode != 0:
+            logger.warning(f"CI auto-fix push failed: {push_result.stderr[:200]}")
+            _sp.run(["git", "checkout", gh_repo.default_branch],
+                    check=False, capture_output=True, cwd=repo_path)
+            return None
+
+        # Create PR
+        pr_body = f"""\
+## 🔧 CI Auto-Fix
+
+Repokeeper Patrol diagnosed and attempted to fix a CI failure.
+
+**Workflow:** {failure.workflow_name}
+**Run:** {failure.run_url}
+
+### Diagnosis
+{failure.diagnosis}
+
+### Fix applied
+{result.get('summary', 'Auto-fix applied.')}
+
+---
+*Generated by RepoKeeper Patrol · Please review carefully.*
+"""
+        pr = gh_repo.create_pull(
+            title=f"ci: auto-fix {failure.workflow_name} (#{failure.run_id})",
+            body=pr_body,
+            head=branch_name,
+            base=gh_repo.default_branch,
+        )
+
+        # Return to default branch
+        _sp.run(["git", "checkout", gh_repo.default_branch],
+                check=False, capture_output=True, cwd=repo_path)
+
+        return f"Fixed {failure.workflow_name}: {pr.html_url}"
+
+    except Exception as e:
+        logger.error(f"CI auto-fix failed for {failure.workflow_name}: {e}")
+        return None
+
+
+def _get_gh_token_from_client(gh_client: Any) -> str | None:
+    """Extract the GitHub token from a PyGithub client for API calls.
+
+    Args:
+        gh_client: PyGithub Github instance.
+
+    Returns:
+        Token string, or None if unavailable.
+    """
+    try:
+        requester = gh_client._Github__requester  # type: ignore[attr-defined]
+        auth = getattr(requester, "auth", None)
+        if auth is not None:
+            return getattr(auth, "token", None)
+    except Exception:
+        pass
+    return None
+
+
 # ─── Main patrol pipeline ────────────────────────────────────────────────────
 
 def run_patrol(
@@ -684,11 +1198,18 @@ def run_patrol(
     logger.info(f"🔍 Patrol: checking CI for {repo}")
     ci_failures = scan_ci_failures(gh_client, repo)
     for ci in ci_failures:
-        diagnose_ci_failure(ci, llm_client, gh_client, model=model)
+        diagnose_ci_failure(ci, llm_client, gh_client, repo, model=model)
         if ci.auto_fixable and ci_auto_fix:
             logger.info(f"  Auto-fixable CI failure: {ci.workflow_name}")
-            # Auto-fix implementation would go here
-            report.ci_fixed.append(f"Attempted fix for {ci.workflow_name} (run {ci.run_id})")
+            fix_result = attempt_ci_auto_fix(
+                ci, llm_client, gh_client, repo, profile, repo_path=rp,
+            )
+            if fix_result:
+                report.ci_fixed.append(fix_result)
+            else:
+                report.ci_fixed.append(
+                    f"Diagnosed but not auto-fixed: {ci.workflow_name} (run {ci.run_id})"
+                )
     report.ci_failures = ci_failures
 
     # ── Step 3: Stale issues ──

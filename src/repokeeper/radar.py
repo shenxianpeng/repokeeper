@@ -518,7 +518,7 @@ def _send_telegram(token: str, message: str) -> bool:
             "text": message,
             "parse_mode": "Markdown",
         }, timeout=10)
-        return resp.status_code == 200
+        return bool(resp.status_code == 200)
     except Exception as e:
         logger.error(f"Telegram failed: {e}")
         return False
@@ -536,7 +536,7 @@ def _send_wechat(webhook_url: str, title: str, content: str) -> bool:
             },
         }
         resp = requests.post(webhook_url, json=payload, timeout=10)
-        return resp.status_code == 200
+        return bool(resp.status_code == 200)
     except Exception as e:
         logger.error(f"WeChat failed: {e}")
         return False

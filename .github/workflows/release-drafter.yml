@@ -14,6 +14,39 @@ jobs:
   update_release_draft:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract latest changelog section
+        id: changelog
+        run: |
+          # Extract the latest version section from CHANGELOG.md.
+          # Sections start with "## [X.Y.Z]"; stop at the next "## [" or EOF.
+          {
+            while IFS='' read -r line; do
+              case "$line" in
+                '## ['*) printf '%s\n' "$line"; break ;;
+              esac
+            done
+            while IFS='' read -r line; do
+              case "$line" in
+                '## ['*) break ;;
+                *) printf '%s\n' "$line" ;;
+              esac
+            done
+          } < CHANGELOG.md > /tmp/changelog-body.md
+          echo '--- Changelog body ---'
+          cat /tmp/changelog-body.md
+          echo '--- End changelog body ---'
+
       - uses: release-drafter/release-drafter@5de93583980a40bd78603b6dfdcda5b4df377b32  # v7.2.0
+        id: draft
         with:
           config-name: github:shenxianpeng/.github:/.github/release-drafter.yml
+
+      - name: Update draft body with changelog
+        if: steps.draft.outputs.id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jq -n --rawfile body /tmp/changelog-body.md '{body: $body}' \
+            | gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/${{ steps.draft.outputs.id }}" --input -

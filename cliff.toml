@@ -43,17 +43,17 @@ commit_preprocessors = [
   { pattern = "^Update\\s+(.*)", replace = "docs: Update $1" },
 ]
 commit_parsers = [
-  { message = "^feat", group = "Features" },
-  { message = "^fix", group = "Bug Fixes" },
-  { message = "^perf", group = "Performance" },
-  { message = "^security", group = "Security" },
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^perf", group = "Changed" },
+  { message = "^revert", group = "Changed" },
   { message = "^docs?", group = "Documentation" },
-  { message = "^refactor", group = "Refactoring" },
   { message = "^test", group = "Testing" },
   { message = "^ci", group = "CI" },
   { message = "^build", group = "Build" },
-  { message = "^chore", group = "Maintenance" },
-  { message = "^revert", group = "Reverts" },
+  { message = "^chore", group = "Chores" },
+  { message = "^security", group = "Security" },
   { message = ".*", group = "Other Changes" },
 ]
 filter_commits = false

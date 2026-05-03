@@ -193,11 +193,13 @@ def test_default_path_for_init():
 
 
 def test_cli_version_matches_package(capsys):
+    import repokeeper
+
     with pytest.raises(SystemExit) as exc:
         cli.main(["--version"])
 
     assert exc.value.code == 0
-    assert "repokeeper 0.2.0" in capsys.readouterr().out
+    assert f"repokeeper {repokeeper.__version__}" in capsys.readouterr().out
 
 
 def test_doctor_reports_missing_setup(tmp_path, monkeypatch, capsys):

@@ -536,8 +536,9 @@ def test_apply_and_push_creates_branch_commits_and_pushes(tmp_path, monkeypatch)
     subprocess.run(["git", "add", "existing.py"], check=True)
     subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
 
-    # Mock _git to intercept push — let real git operations work except push
-    real_git = agent._git
+    # Mock git to intercept push — let real git operations work except push
+    import repokeeper.git_ops as git_ops
+    real_git = git_ops.git
     push_succeeded = []
 
     def mock_git(*args, **kwargs):
@@ -547,7 +548,7 @@ def test_apply_and_push_creates_branch_commits_and_pushes(tmp_path, monkeypatch)
             return type("CompletedProcess", (), {"stdout": "", "stderr": "", "returncode": 0})()
         return real_git(*args, **kwargs)
 
-    monkeypatch.setattr(agent, "_git", mock_git)
+    monkeypatch.setattr(git_ops, "git", mock_git)
 
     impl = {
         "branch_name": "repokeeper/issue-1-fix",
@@ -596,19 +597,21 @@ def test_apply_and_push_blocked_paths_skipped(tmp_path, monkeypatch):
     monkeypatch.chdir(workdir)
     subprocess = __import__("subprocess")
 
+    import repokeeper.git_ops as git_ops
+
     Path("real.py").write_text("real")
     subprocess.run(["git", "add", "real.py"], check=True)
     subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
 
     # Mock _git to intercept push
-    real_git = agent._git
+    real_git = git_ops.git
 
     def mock_git(*args, **kwargs):
         if args and args[0] == "push":
             return type("CompletedProcess", (), {"stdout": "", "stderr": "", "returncode": 0})()
         return real_git(*args, **kwargs)
 
-    monkeypatch.setattr(agent, "_git", mock_git)
+    monkeypatch.setattr(git_ops, "git", mock_git)
 
     impl = {
         "branch_name": "repokeeper/issue-1-blocked",
@@ -631,19 +634,21 @@ def test_apply_and_push_creates_parent_dirs(tmp_path, monkeypatch):
     monkeypatch.chdir(workdir)
     subprocess = __import__("subprocess")
 
+    import repokeeper.git_ops as git_ops
+
     Path("base.py").write_text("base")
     subprocess.run(["git", "add", "base.py"], check=True)
     subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
 
     # Mock _git to intercept push
-    real_git = agent._git
+    real_git = git_ops.git
 
     def mock_git(*args, **kwargs):
         if args and args[0] == "push":
             return type("CompletedProcess", (), {"stdout": "", "stderr": "", "returncode": 0})()
         return real_git(*args, **kwargs)
 
-    monkeypatch.setattr(agent, "_git", mock_git)
+    monkeypatch.setattr(git_ops, "git", mock_git)
 
     impl = {
         "branch_name": "repokeeper/issue-1-dirs",

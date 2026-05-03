@@ -401,7 +401,7 @@ Create a well-structured GitHub issue draft. Use {language}.
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
             raw = raw.rsplit("```", 1)[0]
-        return json.loads(raw)
+        return json.loads(raw)  # type: ignore[no-any-return]
 
     except Exception as e:
         logger.error(f"Draft generation failed: {e}")

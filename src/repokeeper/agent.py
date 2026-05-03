@@ -2,115 +2,63 @@
 """
 Module 3: Implementation Agent
 
-Triggered when an issue is labeled `agent-todo` or when a maintainer
-comments `@repokeeper go`. Reads the codebase + issue description,
+Triggered when an issue is labeled ``agent-todo`` or when a maintainer
+comments ``@repokeeper go``. Reads the codebase + issue description,
 generates an implementation plan, submits a PR with a summary.
 
 Uses the Maintainer Profile (Module 4) for code style, tone, PR standards,
 tech stack preferences, and skip keywords.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
-import shlex
-import shutil
-import subprocess
-import sys
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
 from openai import OpenAI
 
-from .profile import load_profile
+from repokeeper.git_ops import (
+    BLOCKED_PREFIXES,  # noqa: F401  # re-export
+    apply_and_push,  # noqa: F401  # re-export
+)
+from repokeeper.git_ops import git as _git  # noqa: F401  # re-export
+from repokeeper.logs import get_logger
+from repokeeper.profile import load_profile
+from repokeeper.repo_context import (  # noqa: F401  # re-export
+    MAX_FILE_SIZE,
+    MAX_FILES,
+    SKIP_DIRS,
+    SOURCE_EXTENSIONS,
+    build_context_string,
+    collect_repo_files,
+)
+from repokeeper.verifier import (  # noqa: F401  # re-export
+    VerificationResult,
+    discover_verification_commands,
+    format_verification_failures,
+    run_verification_commands,
+)
 
-# ─── Repo context collection ─────────────────────────────────────────────────
-
-SOURCE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".go", ".java", ".rb", ".sh",
-    ".yml", ".yaml", ".toml", ".cfg", ".ini", ".md", ".txt",
-    ".json", ".rst",
-}
-SKIP_DIRS = {
-    ".git", "node_modules", "__pycache__", ".tox",
-    "venv", ".venv", "dist", "build", ".eggs", ".mypy_cache",
-}
-MAX_FILE_SIZE = 40_000
-MAX_FILES = 40
-
-# Paths the agent must never modify (GitHub security: no workflows permission)
-BLOCKED_PREFIXES = (".github/workflows/",)
-
-
-@dataclass
-class VerificationResult:
-    """Result from a command run before committing agent changes."""
-
-    command: list[str]
-    returncode: int
-    stdout: str
-    stderr: str
-
-    @property
-    def display_command(self) -> str:
-        return " ".join(shlex.quote(part) for part in self.command)
-
-    @property
-    def passed(self) -> bool:
-        return self.returncode == 0
-
-
-def collect_repo_files(max_files: int = MAX_FILES) -> dict[str, str]:
-    """Walk the repo and return {path: content} for source files.
-
-    Args:
-        max_files: Maximum number of files to include.
-
-    Returns:
-        Dict mapping file paths to their contents.
-    """
-    files: dict[str, str] = {}
-    for p in sorted(Path(".").rglob("*")):
-        if any(part in SKIP_DIRS for part in p.parts):
-            continue
-        if not p.is_file():
-            continue
-        if p.suffix not in SOURCE_EXTENSIONS:
-            continue
-        try:
-            content = p.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        if len(content) > MAX_FILE_SIZE:
-            continue
-        files[str(p)] = content
-
-    if len(files) > max_files:
-        priority = {
-            k: v for k, v in files.items()
-            if "readme" in k.lower() or k.endswith((".yml", ".toml", ".cfg", ".ini"))
-        }
-        source = {k: v for k, v in files.items() if k not in priority}
-        remaining = max_files - len(priority)
-        files = {**priority, **dict(list(source.items())[:remaining])}
-
-    return files
-
-
-def build_context_string(files: dict[str, str]) -> str:
-    """Build a markdown context string from collected files."""
-    parts = []
-    for path, content in files.items():
-        parts.append(f"### {path}\n```\n{content}\n```")
-    return "\n\n".join(parts)
-
+logger = get_logger("agent")
 
 # ─── GitHub helpers ──────────────────────────────────────────────────────────
 
-def get_issue_data(repo, number: int) -> dict:
-    """Extract structured data from a GitHub issue."""
+
+def get_issue_data(repo: Any, number: int) -> dict[str, Any]:
+    """Extract structured data from a GitHub issue.
+
+    Args:
+        repo: PyGithub Repository object.
+        number: Issue number.
+
+    Returns:
+        Dict with ``number``, ``title``, ``body``, ``labels``, and ``comments``.
+    """
     issue = repo.get_issue(number)
     recent_comments = list(issue.get_comments())[-5:]
     return {
@@ -125,9 +73,92 @@ def get_issue_data(repo, number: int) -> dict:
     }
 
 
-def post_comment(issue_obj, message: str):
-    """Post a comment on the issue."""
+def post_comment(issue_obj: Any, message: str) -> None:
+    """Post a comment on a GitHub issue.
+
+    Args:
+        issue_obj: PyGithub Issue object.
+        message: Markdown message body.
+    """
     issue_obj.create_comment(message)
+
+
+# ─── Skip keyword check ─────────────────────────────────────────────────────
+
+
+def check_skip_keywords(issue_data: dict[str, Any], profile: dict[str, Any]) -> str | None:
+    """Check if the issue matches any skip keywords from the profile.
+
+    Args:
+        issue_data: Issue data dict from :func:`get_issue_data`.
+        profile: Maintainer profile dict.
+
+    Returns:
+        Matched keyword if found, ``None`` otherwise.
+    """
+    skip_keywords = profile.get("agent", {}).get("skip_keywords", [])
+    if not skip_keywords:
+        return None
+
+    combined = f"{issue_data['title']} {issue_data['body']}".lower()
+    for kw in skip_keywords:
+        if kw.lower() in combined:
+            return kw  # type: ignore[no-any-return]
+    return None
+
+
+# ─── Implementation validation ──────────────────────────────────────────────
+
+
+def strip_blocked_paths(implementation: dict[str, Any]) -> list[str]:
+    """Remove blocked paths from implementation in-place.
+
+    Args:
+        implementation: LLM response dict (mutated).
+
+    Returns:
+        List of stripped path names (for warnings).
+    """
+    stripped: list[str] = []
+    for section in ("changes", "new_files"):
+        section_dict = implementation.get(section, {})
+        blocked = [k for k in section_dict if k.startswith(BLOCKED_PREFIXES)]
+        for k in blocked:
+            del section_dict[k]
+            stripped.append(k)
+    return stripped
+
+
+def validate_implementation(
+    implementation: dict[str, Any], profile: dict[str, Any]
+) -> list[str]:
+    """Validate an implementation against profile constraints.
+
+    Args:
+        implementation: LLM response dict.
+        profile: Maintainer profile dict.
+
+    Returns:
+        List of validation issues (empty = valid).
+    """
+    issues: list[str] = []
+
+    pr_config = profile.get("pr", {})
+
+    # Check max files
+    max_files = pr_config.get("max_files_per_pr", 15)
+    total_files = len(implementation.get("changes", {})) + len(
+        implementation.get("new_files", {})
+    )
+    if total_files > max_files:
+        issues.append(f"Implementation touches {total_files} files (max: {max_files})")
+
+    # Check branch naming
+    branch = implementation.get("branch_name", "")
+    if not branch.startswith("repokeeper/"):
+        issues.append("branch_name must start with 'repokeeper/'")
+
+    return issues
 
 
 # ─── LLM interaction ─────────────────────────────────────────────────────────
@@ -168,28 +199,7 @@ Respond with a single valid JSON object — no markdown fences, no explanation o
 """
 
 
-def check_skip_keywords(issue_data: dict, profile: dict) -> str | None:
-    """Check if the issue matches any skip keywords from the profile.
-
-    Args:
-        issue_data: Issue data dict.
-        profile: Maintainer profile.
-
-    Returns:
-        Matched keyword if found, None otherwise.
-    """
-    skip_keywords = profile.get("agent", {}).get("skip_keywords", [])
-    if not skip_keywords:
-        return None
-
-    combined = f"{issue_data['title']} {issue_data['body']}".lower()
-    for kw in skip_keywords:
-        if kw.lower() in combined:
-            return kw
-    return None
-
-
-def _parse_llm_json(raw: str) -> dict:
+def _parse_llm_json(raw: str) -> dict[str, Any]:
     """Parse LLM JSON output with resilience to common formatting issues.
 
     Handles markdown fences, code block markers, and attempts basic repair
@@ -207,13 +217,11 @@ def _parse_llm_json(raw: str) -> dict:
     text = raw.strip()
 
     # ── Strip markdown code fences ──
-    # Pattern: ```json ... ``` or ``` ... ```
     fence_pattern = r"```(?:json)?\s*\n(.*?)\n```"
     m = re.search(fence_pattern, text, re.DOTALL)
     if m:
         text = m.group(1).strip()
     elif text.startswith("```"):
-        # Partial fence: ```json\n... or ```\n...
         inner = text.split("```", 2)
         if len(inner) >= 2:
             candidate = inner[1]
@@ -223,32 +231,28 @@ def _parse_llm_json(raw: str) -> dict:
 
     # ── Try direct parse ──
     try:
-        return json.loads(text)
+        return json.loads(text)  # type: ignore[no-any-return]
     except json.JSONDecodeError as err:
         first_error = err
 
     # ── Try extracting the outermost JSON object ──
-    # Some LLMs add explanatory text before/after the JSON.
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        extracted = text[start:end + 1]
+        extracted = text[start : end + 1]
         try:
-            return json.loads(extracted)
+            return json.loads(extracted)  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             pass
 
-    # ── Try fixing common unterminated string by adding missing quote + closing ──
-    # This handles the most frequent LLM error: an unescaped quote inside a file
-    # content string, which breaks the JSON. We try to find a valid closure.
+    # ── Try fixing common unterminated string ──
     repaired = _repair_truncated_json(text)
     if repaired is not None:
         try:
-            return json.loads(repaired)
+            return json.loads(repaired)  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             pass
 
-    # ── Give up with a clear error ──
     raise ValueError(
         f"Failed to parse LLM JSON response. First error: {first_error}\n"
         f"Raw response (last 2000 chars): ...{text[-2000:]}"
@@ -259,12 +263,14 @@ def _repair_truncated_json(text: str) -> str | None:
     """Attempt to repair a truncated/incomplete JSON string.
 
     Tries to find the last complete key-value pair and close the object.
-    Returns the repaired string or None if repair is not possible.
+
+    Args:
+        text: Possibly truncated JSON string.
+
+    Returns:
+        Repaired string or ``None`` if repair is not possible.
     """
-    # Strategy: walk forward with a bracket stack and string tracking.
-    # At the end, we know exactly which brackets are unclosed and whether
-    # we're inside a string. Then add the needed closing chars.
-    bracket_stack: list[str] = []  # stack of OPEN brackets
+    bracket_stack: list[str] = []
     in_string = False
     escape_next = False
 
@@ -285,22 +291,17 @@ def _repair_truncated_json(text: str) -> str | None:
         elif ch == "}":
             if bracket_stack and bracket_stack[-1] == "{":
                 bracket_stack.pop()
-            # else: extra closing brace, ignore
         elif ch == "]":
             if bracket_stack and bracket_stack[-1] == "[":
                 bracket_stack.pop()
-            # else: extra closing bracket, ignore
 
     if not bracket_stack and not in_string:
-        return None  # Nothing to repair
+        return None
 
     repaired = text.rstrip()
-
-    # If we're inside a string, close it first
     if in_string:
         repaired += '"'
 
-    # Close remaining brackets in reverse order (innermost first)
     for open_ch in reversed(bracket_stack):
         if open_ch == "{":
             repaired += "}"
@@ -311,21 +312,24 @@ def _repair_truncated_json(text: str) -> str | None:
 
 
 def call_llm(
-    issue_data: dict,
+    issue_data: dict[str, Any],
     context_str: str,
-    profile: dict,
+    profile: dict[str, Any],
     llm_client: OpenAI,
-) -> dict:
+) -> dict[str, Any]:
     """Call the LLM to generate an implementation plan.
 
     Args:
-        issue_data: Structured issue data.
+        issue_data: Structured issue data from :func:`get_issue_data`.
         context_str: Repository source context string.
-        profile: Maintainer profile with style preferences.
+        profile: Maintainer profile dict.
         llm_client: OpenAI-compatible client.
 
     Returns:
         Parsed JSON response from the LLM.
+
+    Raises:
+        RuntimeError: If JSON parsing fails after retries.
     """
     style_config = profile.get("style", {})
     code_style = style_config.get("code_style", "follow existing patterns")
@@ -365,30 +369,31 @@ def call_llm(
     for attempt in range(max_retries + 1):
         response = llm_client.chat.completions.create(
             model=profile.get("agent", {}).get("model", "deepseek-chat"),
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
             temperature=profile.get("agent", {}).get("temperature", 0.1),
             max_tokens=8000,
         )
 
-        raw = response.choices[0].message.content.strip()
+        raw = response.choices[0].message.content
+        if raw is None:
+            raise ValueError("LLM returned empty response")
+        raw = raw.strip()
 
         try:
             return _parse_llm_json(raw)
         except ValueError as err:
             if attempt < max_retries:
-                print(
-                    f"[repokeeper] JSON parse failed (attempt {attempt + 1}), retrying...",
-                    flush=True,
+                logger.warning(
+                    "JSON parse failed (attempt %d), retrying...", attempt + 1,
                 )
-                # Append error feedback to messages for the retry
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({
                     "role": "user",
                     "content": (
-                        f"Your previous response contained invalid JSON. "
+                        "Your previous response contained invalid JSON. "
                         f"Error: {err}\n\n"
-                        f"Please fix the JSON and respond with ONLY the corrected "
-                        f"JSON object. Ensure all strings are properly escaped."
+                        "Please fix the JSON and respond with ONLY the corrected "
+                        "JSON object. Ensure all strings are properly escaped."
                     ),
                 })
             else:
@@ -397,210 +402,36 @@ def call_llm(
                     f"Last error: {err}"
                 ) from err
 
-
-# ─── Git + PR operations ─────────────────────────────────────────────────────
-
-def _git(*args, check=True, capture=False):
-    kwargs = {"check": check}
-    if capture:
-        kwargs.update({"capture_output": True, "text": True})
-    return subprocess.run(["git", *args], **kwargs)
+    # Unreachable — satisfy type checker
+    raise RuntimeError("LLM JSON parsing failed")
 
 
-def _has_python_files(root: Path) -> bool:
-    return any(
-        p.suffix == ".py" and not any(part in SKIP_DIRS for part in p.parts)
-        for p in root.rglob("*.py")
-    )
-
-
-def _normalize_command(command: object) -> list[str] | None:
-    if isinstance(command, str):
-        return shlex.split(command)
-    if isinstance(command, list) and all(isinstance(part, str) for part in command):
-        return command
-    return None
-
-
-def discover_verification_commands(profile: dict, repo_path: Path = Path(".")) -> list[list[str]]:
-    """Discover commands that should pass before the agent opens a PR."""
-    agent_config = profile.get("agent", {})
-    configured = agent_config.get("verify_commands")
-    if configured is not None:
-        if configured is False:
-            return []
-        if not isinstance(configured, list):
-            return []
-        commands = [_normalize_command(command) for command in configured]
-        return [command for command in commands if command]
-
-    style = profile.get("style", {})
-    commands: list[list[str]] = []
-    has_python = _has_python_files(repo_path)
-
-    if style.get("linting", True) and has_python and shutil.which("ruff"):
-        commands.append(["ruff", "check", "."])
-
-    testing = style.get("testing", "pytest")
-    if testing == "pytest" and (repo_path / "tests").exists() and shutil.which("pytest"):
-        commands.append(["pytest", "tests"])
-    elif testing == "go test" and (repo_path / "go.mod").exists() and shutil.which("go"):
-        commands.append(["go", "test", "./..."])
-    elif testing == "jest" and (repo_path / "package.json").exists() and shutil.which("npm"):
-        commands.append(["npm", "test"])
-
-    return commands
-
-
-def run_verification_commands(
-    profile: dict,
-    repo_path: Path = Path("."),
-) -> list[VerificationResult]:
-    """Run configured or discovered verification commands."""
-    results: list[VerificationResult] = []
-    for command in discover_verification_commands(profile, repo_path):
-        print(f"[repokeeper] Verifying: {' '.join(command)}", flush=True)
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                timeout=600,
-                check=False,
-            )
-        except FileNotFoundError as exc:
-            results.append(
-                VerificationResult(
-                    command=command,
-                    returncode=127,
-                    stdout="",
-                    stderr=f"Command not found: {exc.filename}",
-                )
-            )
-            continue
-        except subprocess.TimeoutExpired as exc:
-            results.append(
-                VerificationResult(
-                    command=command,
-                    returncode=124,
-                    stdout=exc.stdout or "",
-                    stderr=(exc.stderr or "") + "\nCommand timed out after 600 seconds.",
-                )
-            )
-            continue
-        results.append(
-            VerificationResult(
-                command=command,
-                returncode=completed.returncode,
-                stdout=completed.stdout,
-                stderr=completed.stderr,
-            )
-        )
-    return results
-
-
-def format_verification_failures(results: list[VerificationResult]) -> str:
-    """Format failed verification results for workflow logs and issue comments."""
-    failed = [result for result in results if not result.passed]
-    if not failed:
-        return ""
-
-    parts = ["Verification failed before creating a pull request."]
-    for result in failed:
-        output = (result.stdout + "\n" + result.stderr).strip()
-        if len(output) > 3000:
-            output = output[-3000:]
-        parts.append(
-            f"\nCommand: `{result.display_command}`\n"
-            f"Exit code: {result.returncode}\n"
-            f"Output:\n```\n{output or '(no output)'}\n```"
-        )
-    return "\n".join(parts)
-
-
-def apply_and_push(
-    implementation: dict,
-    gh_token: str,
-    repository: str,
-    profile: dict | None = None,
-) -> tuple[str, list[str]]:
-    """Create a branch, apply changes, push.
-
-    Args:
-        implementation: LLM response with changes/new_files.
-        gh_token: GitHub token for authentication.
-        repository: Repository slug (owner/name).
-
-    Returns:
-        Tuple of (branch_name, list_of_changed_files).
-    """
-    branch = implementation["branch_name"]
-
-    _git("config", "user.email", "repokeeper[bot]@users.noreply.github.com")
-    _git("config", "user.name", "repokeeper[bot]")
-    _git("checkout", "-b", branch)
-
-    # Write modified files (filter blocked paths)
-    for filepath, content in implementation.get("changes", {}).items():
-        if filepath.startswith(BLOCKED_PREFIXES):
-            print(f"[repokeeper] Skipping blocked path: {filepath}", file=sys.stderr)
-            continue
-        p = Path(filepath)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
-
-    # Write new files (filter blocked paths)
-    for filepath, content in implementation.get("new_files", {}).items():
-        if filepath.startswith(BLOCKED_PREFIXES):
-            print(f"[repokeeper] Skipping blocked path: {filepath}", file=sys.stderr)
-            continue
-        p = Path(filepath)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
-
-    _git("add", "-A")
-
-    # Verify something changed
-    diff = _git("diff", "--cached", "--name-only", capture=True).stdout.strip()
-    if not diff:
-        raise RuntimeError("Agent produced no file changes.")
-
-    if profile is not None:
-        verification_results = run_verification_commands(profile)
-        failure_message = format_verification_failures(verification_results)
-        if failure_message:
-            raise RuntimeError(failure_message)
-
-    _git("commit", "-m", implementation["commit_message"])
-
-    remote_url = f"https://x-access-token:{gh_token}@github.com/{repository}.git"
-    _git("remote", "set-url", "origin", remote_url)
-    _git("push", "origin", branch)
-
-    return branch, diff.splitlines()
+# ─── PR creation ─────────────────────────────────────────────────────────────
 
 
 def create_pr(
-    repo,
-    issue_data: dict,
-    implementation: dict,
+    repo: Any,
+    issue_data: dict[str, Any],
+    implementation: dict[str, Any],
     branch: str,
     changed_files: list[str],
-    profile: dict,
+    profile: dict[str, Any],
 ) -> str:
-    """Create a GitHub pull request.
+    """Create a GitHub pull request for the agent's implementation.
 
     Args:
         repo: PyGithub Repository object.
         issue_data: Issue data dict.
-        implementation: LLM response.
+        implementation: LLM response dict.
         branch: Branch name.
         changed_files: List of changed file paths.
         profile: Maintainer profile.
 
     Returns:
         PR URL.
+
+    Raises:
+        RuntimeError: If GitHub refuses to create the PR (e.g. permissions).
     """
     files_list = "\n".join(f"- `{f}`" for f in changed_files)
 
@@ -630,60 +461,15 @@ Closes #{issue_data['number']}
             raise RuntimeError(
                 "GitHub refused to create the pull request. Enable repository Actions "
                 "'Allow GitHub Actions to create and approve pull requests', or set "
-                "REPOKEEPER_GITHUB_TOKEN to a token with contents and pull request write access."
+                "REPOKEEPER_GITHUB_TOKEN to a token with contents and pull request "
+                "write access."
             ) from exc
         raise
-    return pr.html_url
-
-
-def strip_blocked_paths(implementation: dict) -> list[str]:
-    """Remove blocked paths from implementation in-place.
-
-    Args:
-        implementation: LLM response dict (mutated).
-
-    Returns:
-        List of stripped path names (for warnings).
-    """
-    stripped: list[str] = []
-    for section in ("changes", "new_files"):
-        section_dict = implementation.get(section, {})
-        blocked = [k for k in section_dict if k.startswith(BLOCKED_PREFIXES)]
-        for k in blocked:
-            del section_dict[k]
-            stripped.append(k)
-    return stripped
-
-
-def validate_implementation(implementation: dict, profile: dict) -> list[str]:
-    """Validate an implementation against profile constraints.
-
-    Args:
-        implementation: LLM response dict.
-        profile: Maintainer profile.
-
-    Returns:
-        List of validation issues (empty = valid).
-    """
-    issues: list[str] = []
-
-    pr_config = profile.get("pr", {})
-
-    # Check max files
-    max_files = pr_config.get("max_files_per_pr", 15)
-    total_files = len(implementation.get("changes", {})) + len(implementation.get("new_files", {}))
-    if total_files > max_files:
-        issues.append(f"Implementation touches {total_files} files (max: {max_files})")
-
-    # Check branch naming
-    branch = implementation.get("branch_name", "")
-    if not branch.startswith("repokeeper/"):
-        issues.append("branch_name must start with 'repokeeper/'")
-
-    return issues
+    return str(pr.html_url)
 
 
 # ─── Main entry point ────────────────────────────────────────────────────────
+
 
 def run_agent(
     gh_token: str | None = None,
@@ -692,16 +478,24 @@ def run_agent(
     llm_api_key: str | None = None,
     llm_base_url: str | None = None,
     profile_path: str | Path | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Run the Implementation Agent end-to-end.
 
     Returns:
-        Dict with result info (pr_url, skip_reason, error).
+        Dict with result info (``pr_url``, ``skip`` reason, ``error``).
     """
-    gh_token = gh_token or os.environ.get("REPOKEEPER_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    gh_token = (
+        gh_token
+        or os.environ.get("REPOKEEPER_GITHUB_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+    )
     repository = repository or os.environ.get("GITHUB_REPOSITORY")
     issue_number = issue_number or int(os.environ.get("ISSUE_NUMBER", "0"))
-    llm_api_key = llm_api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    llm_api_key = (
+        llm_api_key
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
     llm_base_url = llm_base_url or os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 
     missing = []
@@ -724,13 +518,13 @@ def run_agent(
 
     gh = Github(gh_token)
     llm = OpenAI(api_key=llm_api_key, base_url=llm_base_url)
+    assert repository is not None  # validated above
     try:
         repo = gh.get_repo(repository)
     except UnknownObjectException:
-        # Token doesn't have access to this repo — try GITHUB_TOKEN as fallback
         fallback = os.environ.get("GITHUB_TOKEN")
         if fallback and fallback != gh_token:
-            print("[repokeeper] Primary token unauthorized, falling back to GITHUB_TOKEN", flush=True)
+            logger.info("Primary token unauthorized, falling back to GITHUB_TOKEN")
             gh = Github(fallback)
             repo = gh.get_repo(repository)
             gh_token = fallback
@@ -739,12 +533,12 @@ def run_agent(
     issue_obj = repo.get_issue(issue_number)
     issue_data = get_issue_data(repo, issue_number)
 
-    print(f"[repokeeper] Issue #{issue_number}: {issue_data['title']}", flush=True)
+    logger.info("Issue #%d: %s", issue_number, issue_data["title"])
 
     # Check skip keywords early
     skip_kw = check_skip_keywords(issue_data, profile)
     if skip_kw:
-        print(f"[repokeeper] Skipping: matched skip keyword '{skip_kw}'", flush=True)
+        logger.info("Skipping: matched skip keyword '%s'", skip_kw)
         post_comment(
             issue_obj,
             f"🤖 **RepoKeeper** skipped this issue: matched skip keyword `{skip_kw}`.\n\n"
@@ -756,20 +550,21 @@ def run_agent(
 
     try:
         # Collect repo context
-        print("[repokeeper] Collecting repository context...", flush=True)
+        logger.info("Collecting repository context...")
         max_context = profile.get("agent", {}).get("max_context_files", 40)
         files = collect_repo_files(max_files=max_context)
-        print(f"[repokeeper] Loaded {len(files)} files", flush=True)
+        logger.info("Loaded %d files", len(files))
         context_str = build_context_string(files)
 
         # Call LLM
-        print(f"[repokeeper] Calling LLM ({profile.get('agent', {}).get('model', 'deepseek-chat')})...", flush=True)
+        model = profile.get("agent", {}).get("model", "deepseek-chat")
+        logger.info("Calling LLM (%s)...", model)
         result = call_llm(issue_data, context_str, profile, llm)
 
         # Agent decided to skip
         if result.get("skip"):
             reason = result.get("reason", "No reason provided.")
-            print(f"[repokeeper] Skipping: {reason}", flush=True)
+            logger.info("Skipping: %s", reason)
             post_comment(
                 issue_obj,
                 f"🤖 **RepoKeeper** decided not to implement this automatically:\n\n> {reason}\n\n"
@@ -780,7 +575,7 @@ def run_agent(
         # Strip blocked paths (auto-fix, warn but don't skip)
         stripped = strip_blocked_paths(result)
         if stripped:
-            print(f"[repokeeper] Stripped blocked paths: {', '.join(stripped)}", flush=True)
+            logger.info("Stripped blocked paths: %s", ", ".join(stripped))
             if not result.get("changes") and not result.get("new_files"):
                 post_comment(
                     issue_obj,
@@ -788,24 +583,37 @@ def run_agent(
                     f" ({', '.join(stripped)}).\n\n"
                     "Please implement manually or clarify the issue.",
                 )
-                return {"skip": True, "reason": f"All changes in blocked paths: {', '.join(stripped)}", "pr_url": None}
+                return {
+                    "skip": True,
+                    "reason": f"All changes in blocked paths: {', '.join(stripped)}",
+                    "pr_url": None,
+                }
 
         # Validate against profile constraints
         validation_issues = validate_implementation(result, profile)
         if validation_issues:
             issues_str = "\n".join(f"- {v}" for v in validation_issues)
-            print(f"[repokeeper] Validation issues:\n{issues_str}", flush=True)
+            logger.warning("Validation issues:\n%s", issues_str)
             post_comment(
                 issue_obj,
                 f"🤖 **RepoKeeper** found issues with the implementation plan:\n\n{issues_str}\n\n"
                 f"Please review and adjust the profile constraints or the issue scope.",
             )
-            return {"skip": True, "reason": f"Validation failed: {issues_str}", "pr_url": None}
+            return {
+                "skip": True,
+                "reason": f"Validation failed: {issues_str}",
+                "pr_url": None,
+            }
 
-        print(f"[repokeeper] Plan: {result['summary']}", flush=True)
+        logger.info("Plan: %s", result["summary"])
 
-        # Apply changes and push
-        branch, changed_files = apply_and_push(result, gh_token, repository, profile)
+        # Apply changes and push (gh_token and repository are guaranteed non-None
+        # after the validation above, but mypy needs the hint).
+        assert gh_token is not None
+        assert repository is not None
+        branch, changed_files = apply_and_push(
+            result, gh_token, repository, profile
+        )
 
         # Create PR
         pr_url = create_pr(repo, issue_data, result, branch, changed_files, profile)
@@ -817,11 +625,11 @@ def run_agent(
             f"**Summary:** {result['summary']}\n\n"
             f"Please review the changes before merging.",
         )
-        print(f"[repokeeper] Done — PR: {pr_url}", flush=True)
+        logger.info("Done — PR: %s", pr_url)
         return {"skip": False, "reason": "", "pr_url": pr_url}
 
     except Exception as exc:
-        print(f"[repokeeper] ERROR: {exc}", file=sys.stderr, flush=True)
+        logger.error("ERROR: %s", exc)
         post_comment(
             issue_obj,
             f"🤖 **RepoKeeper** encountered an error:\n\n```\n{exc}\n```\n\n"
@@ -833,5 +641,4 @@ def run_agent(
 # ─── CLI entry point (backwards-compatible) ──────────────────────────────────
 
 if __name__ == "__main__":
-    # When run as a script from GitHub Actions
     run_agent()

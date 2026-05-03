@@ -26,6 +26,9 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Type check
+        run: mypy src/repokeeper
+
       - name: Test
         run: pytest
 

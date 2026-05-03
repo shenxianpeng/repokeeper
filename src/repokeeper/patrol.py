@@ -1277,7 +1277,7 @@ def create_dependency_upgrade_pr(
             head="repokeeper/deps-upgrade",
             base=default_branch,
         )
-        return pr.html_url
+        return str(pr.html_url)
     except Exception as e:
         logger.error(f"Failed to create dep upgrade PR: {e}")
         return None

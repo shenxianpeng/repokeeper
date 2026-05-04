@@ -62,6 +62,9 @@ Source = "https://github.com/shenxianpeng/repokeeper"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+repokeeper = ["templates/workflows/*.yml"]
+
 [tool.setuptools_scm]
 
 [tool.pytest.ini_options]

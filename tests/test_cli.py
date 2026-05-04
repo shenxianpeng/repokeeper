@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,14 @@ def test_init_minimal_writes_only_agent_workflow(tmp_path):
     assert (tmp_path / ".github" / "workflows" / "repokeeper.yml").exists()
     assert not (tmp_path / ".github" / "workflows" / "radar.yml").exists()
     assert not (tmp_path / ".github" / "workflows" / "patrol.yml").exists()
+
+
+def test_workflow_templates_are_package_data():
+    templates = resources.files("repokeeper").joinpath("templates", "workflows")
+
+    assert templates.joinpath("repokeeper.yml").is_file()
+    assert templates.joinpath("radar.yml").is_file()
+    assert templates.joinpath("patrol.yml").is_file()
 
 
 def test_init_refuses_to_overwrite_existing_profile(tmp_path, capsys):

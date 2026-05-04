@@ -103,14 +103,23 @@ Go to your repository → **Settings** → **Secrets and variables** → **Actio
 
 ### Step 4: Verify
 
-Push the workflows and profile to your repo. Go to the **Actions** tab and
-manually trigger any workflow to test.
-
-You can also run a local setup check:
+Run the local setup check before pushing:
 
 ```bash
 repokeeper doctor --repo owner/repo
 ```
+
+Fix anything marked `missing`. The doctor checks:
+
+- Git repository and profile file
+- Implementation Agent workflow
+- Required workflow triggers and permissions
+- GitHub token environment
+- LLM API key
+- Repository slug
+
+Then push the workflows and profile to your repo. Go to the **Actions** tab and
+manually trigger any workflow to test.
 
 ## Profile Layering
 

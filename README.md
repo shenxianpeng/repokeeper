@@ -119,6 +119,16 @@ jobs:
 
 Then add your API key: **Settings → Secrets → Actions → New secret:** `DEEPSEEK_API_KEY` = `sk-...`
 
+Before pushing, run the setup check:
+
+```bash
+repokeeper doctor --repo owner/repo
+```
+
+`doctor` verifies the profile, workflow triggers, workflow permissions, token
+environment, LLM key, and repository slug. Fix anything marked `missing`, then
+push the workflow.
+
 > Want Radar & Patrol too? Copy [`radar.yml`](src/repokeeper/templates/workflows/radar.yml) and [`patrol.yml`](src/repokeeper/templates/workflows/patrol.yml) into the same `.github/workflows/` folder.
 
 ### 🖥️ CLI
@@ -127,6 +137,7 @@ Then add your API key: **Settings → Secrets → Actions → New secret:** `DEE
 pip install repokeeper
 repokeeper init --all-workflows   # profile + all 3 workflows
 repokeeper init --minimal         # profile + agent workflow only
+repokeeper doctor --repo owner/repo
 ```
 
 ### 🤖 Ask AI

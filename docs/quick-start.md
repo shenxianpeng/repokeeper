@@ -24,6 +24,16 @@ Go to **Settings → Secrets and variables → Actions** → **New repository se
 
 ## 3. Push and test
 
+Run a setup check before pushing:
+
+```bash
+repokeeper doctor --repo owner/repo
+```
+
+Fix anything marked `missing`. The doctor checks the profile, workflow file,
+required workflow triggers and permissions, token environment, LLM key, and
+repository slug.
+
 ```bash
 git add .github/workflows/repokeeper.yml
 git commit -m "Add RepoKeeper agent"
@@ -56,7 +66,7 @@ agent:
 EOF
 ```
 
-Run a local setup check any time:
+Run the local setup check any time:
 
 ```bash
 repokeeper doctor --repo owner/repo

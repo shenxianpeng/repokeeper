@@ -216,6 +216,7 @@ def test_doctor_reports_missing_setup(tmp_path, monkeypatch, capsys):
     assert "Doctor found" in output
     assert "Git repository" in output
     assert "LLM API key" in output
+    assert "Fix: repokeeper init . --minimal" in output
 
 
 def test_doctor_success(tmp_path, monkeypatch, capsys):
@@ -228,6 +229,24 @@ def test_doctor_success(tmp_path, monkeypatch, capsys):
 
     assert exit_code == 0
     assert "Doctor found no local setup issues" in capsys.readouterr().out
+
+
+def test_doctor_reports_incomplete_workflow(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "repokeeper.yml").write_text("maintainer: alice\n")
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "repokeeper.yml").write_text("name: broken\n")
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
+
+    exit_code = cli.main(["doctor", str(tmp_path), "--repo", "owner/repo"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Workflow triggers and permissions" not in output
+    assert "issue_comment trigger" in output
+    assert "pull request write permission" in output
 
 
 def test_cmd_radar_missing_token(tmp_path, monkeypatch):

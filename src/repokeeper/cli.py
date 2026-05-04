@@ -155,22 +155,46 @@ def _has_env(name: str) -> bool:
     return bool(os.environ.get(name))
 
 
-def _print_check(ok: bool, label: str, detail: str = "") -> None:
-    status = "ok" if ok else "missing"
+def _print_check(ok: bool, label: str, detail: str = "", status_if_false: str = "missing") -> None:
+    status = "ok" if ok else status_if_false
     suffix = f" - {detail}" if detail else ""
     print(f"[{status}] {label}{suffix}")
+
+
+def _print_fix(command: str) -> None:
+    print(f"  Fix: {command}")
+
+
+def _workflow_has_required_settings(workflow_path: Path) -> list[str]:
+    """Return setup issues found in the Implementation Agent workflow."""
+    if not workflow_path.exists():
+        return ["workflow file is missing"]
+
+    text = workflow_path.read_text(encoding="utf-8")
+    required_snippets = {
+        "issue_comment trigger": "issue_comment:",
+        "issues trigger": "issues:",
+        "contents write permission": "contents: write",
+        "issues write permission": "issues: write",
+        "pull request write permission": "pull-requests: write",
+        "agent command": "repokeeper agent",
+    }
+    return [label for label, snippet in required_snippets.items() if snippet not in text]
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     target = Path(args.path).resolve()
     profile_path = Path(args.profile).resolve() if args.profile else target / "repokeeper.yml"
     failed = 0
+    warnings = 0
 
     print(f"RepoKeeper doctor for {target}")
 
     in_git_repo = (target / ".git").exists()
     _print_check(in_git_repo, "Git repository", "expected .git in the target path")
-    failed += 0 if in_git_repo else 1
+    if not in_git_repo:
+        failed += 1
+        _print_fix("run doctor from a repository root, or pass the repository path")
 
     profile_exists = profile_path.exists()
     _print_check(profile_exists, "Profile", str(profile_path))
@@ -181,29 +205,71 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             failed += 1
             for issue in issues:
                 print(f"  - {issue}")
+            _print_fix(f"edit {profile_path}")
     else:
         failed += 1
+        _print_fix("repokeeper init . --minimal")
 
     workflows_dir = target / ".github" / "workflows"
     agent_workflow = workflows_dir / AGENT_WORKFLOW
     _print_check(agent_workflow.exists(), "Implementation Agent workflow", str(agent_workflow))
-    failed += 0 if agent_workflow.exists() else 1
+    workflow_issues = _workflow_has_required_settings(agent_workflow)
+    if workflow_issues:
+        failed += 1
+        for issue in workflow_issues:
+            print(f"  - {issue}")
+        _print_fix("repokeeper init . --minimal --force")
+    else:
+        _print_check(True, "Workflow triggers and permissions")
 
     github_token = _has_env("REPOKEEPER_GITHUB_TOKEN") or _has_env("GITHUB_TOKEN")
-    _print_check(github_token, "GitHub token", "set REPOKEEPER_GITHUB_TOKEN or GITHUB_TOKEN")
-    failed += 0 if github_token else 1
+    _print_check(
+        github_token,
+        "GitHub token",
+        "set REPOKEEPER_GITHUB_TOKEN or GITHUB_TOKEN",
+    )
+    if not github_token:
+        failed += 1
+        _print_fix("add a GitHub Actions secret only if the default GITHUB_TOKEN cannot create PRs")
 
-    llm_key = _has_env("DEEPSEEK_API_KEY") or _has_env("OPENAI_API_KEY")
-    _print_check(llm_key, "LLM API key", "set DEEPSEEK_API_KEY or OPENAI_API_KEY")
-    failed += 0 if llm_key else 1
+    llm_key = (
+        _has_env("DEEPSEEK_API_KEY")
+        or _has_env("OPENAI_API_KEY")
+        or _has_env("ANTHROPIC_API_KEY")
+    )
+    _print_check(
+        llm_key,
+        "LLM API key",
+        "set DEEPSEEK_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY",
+    )
+    if not llm_key:
+        failed += 1
+        _print_fix("add DEEPSEEK_API_KEY in Settings -> Secrets and variables -> Actions")
+
+    if _has_env("ANTHROPIC_API_KEY"):
+        try:
+            import anthropic  # noqa: F401
+        except ImportError:
+            warnings += 1
+            _print_check(
+                False,
+                "Anthropic extra",
+                "install with: pip install 'repokeeper[anthropic]'",
+                status_if_false="warn",
+            )
 
     repo_slug = args.repo or os.environ.get("GITHUB_REPOSITORY")
     _print_check(bool(repo_slug), "Repository slug", "pass --repo owner/name or set GITHUB_REPOSITORY")
-    failed += 0 if repo_slug else 1
+    if not repo_slug:
+        failed += 1
+        _print_fix("repokeeper doctor --repo owner/name")
 
     if failed:
-        print(f"\nDoctor found {failed} issue(s).")
+        print(f"\nDoctor found {failed} issue(s) and {warnings} warning(s).")
         return 1
+    if warnings:
+        print(f"\nDoctor found no blocking issues ({warnings} warning(s)).")
+        return 0
     print("\nDoctor found no local setup issues.")
     return 0
 

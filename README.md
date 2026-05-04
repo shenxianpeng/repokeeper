@@ -165,10 +165,19 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | Guide | |
 |---|---|
 | [Quick Start](https://shenxianpeng.github.io/repokeeper/quick-start/) | 5-minute setup |
+| [Security](https://shenxianpeng.github.io/repokeeper/security/) | Permissions, tokens, and automation boundaries |
 | [Community Radar](https://shenxianpeng.github.io/repokeeper/module-1-radar/) | Monitor your community |
 | [Daily Patrol](https://shenxianpeng.github.io/repokeeper/module-2-patrol/) | Automated health checks |
 | [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |
 | [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
+
+## Safety Model
+
+RepoKeeper creates reviewable pull requests; it does not merge them for you.
+The default workflow limits write access to branches, issue comments, and pull
+requests, and the agent blocks edits under `.github/workflows/`. See the
+[Security guide](https://shenxianpeng.github.io/repokeeper/security/) before
+enabling it on sensitive repositories.
 
 ---
 

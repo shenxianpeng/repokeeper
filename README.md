@@ -171,6 +171,12 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |
 | [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
 
+## Contributing
+
+Contributions are welcome, especially documentation examples, setup diagnostics,
+tests, and safety improvements. See [CONTRIBUTING.md](CONTRIBUTING.md) before
+opening a pull request.
+
 ## Safety Model
 
 RepoKeeper creates reviewable pull requests; it does not merge them for you.

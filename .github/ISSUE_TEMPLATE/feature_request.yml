@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a useful RepoKeeper capability
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Maintainer problem
+      description: What open source maintenance problem would this solve?
+      placeholder: I want RepoKeeper to help with...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should RepoKeeper do?
+      placeholder: It should...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or related tools you considered.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This should be safe to run in GitHub Actions.
+        - label: This should create reviewable output instead of merging automatically.
+

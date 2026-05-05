@@ -578,7 +578,7 @@ def run_agent(
         # Log token usage
         if usage.total_tokens > 0:
             logger.info(
-                "LLM usage: %d tokens · $%.6f (model: %s)",
+                "LLM usage: %d tokens · estimated $%.6f (model: %s)",
                 usage.total_tokens, usage.cost_usd, usage.model,
             )
 
@@ -645,7 +645,10 @@ def run_agent(
 
         cost_note = ""
         if usage.cost_usd > 0:
-            cost_note = f"\n**Cost:** ~${usage.cost_usd:.6f} ({usage.total_tokens} tokens, {usage.model})"
+            cost_note = (
+                f"\n**Estimated cost:** ~${usage.cost_usd:.6f} "
+                f"({usage.total_tokens} tokens, {usage.model})"
+            )
 
         post_comment(
             issue_obj,

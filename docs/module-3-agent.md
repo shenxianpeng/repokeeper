@@ -263,10 +263,12 @@ The agent streams LLM responses to the workflow log with progress dots every
 created, the issue comment includes token usage and estimated cost:
 
 ```
-**Cost:** ~$0.000214 (12850 tokens, deepseek-chat)
+**Estimated cost:** ~$0.000214 (12850 tokens, deepseek-chat)
 ```
 
-Pricing is tracked for DeepSeek, GPT-4o, GPT-4-turbo, and Claude models.
+Built-in prices are estimates for common DeepSeek, GPT-4o, GPT-4-turbo, and
+Claude models. Override them with `RKP_LLM_PRICE_<MODEL>_INPUT` and
+`RKP_LLM_PRICE_<MODEL>_OUTPUT`, using USD per 1M tokens.
 
 ### Branch Name Collisions
 

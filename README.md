@@ -37,14 +37,14 @@ Triaging issues, bumping dependencies, diagnosing CI, responding to the communit
 | Community | No | Monitors, classifies, responds |
 | Dependencies | No | Scans for outdated deps, reports upgrade candidates |
 | CI | No | Diagnoses failures, suggests fixes |
-| **Cost** | $10–39/month subscription | **~$0.01 per PR** with DeepSeek |
+| **Cost** | $10–39/month subscription | **Estimated per-run token cost** with your model/provider |
 | Config | IDE settings | One YAML (or zero) |
 
 ## What It Does
 
 - **🔭 Community Radar** — Monitors GitHub issues **and discussions** for keywords. AI classifies hits. Drafts responses. Notifies you via email, Telegram, or WeChat.
 - **🔍 Daily Patrol** — Scans **8 ecosystems** (pip, npm, Go, Cargo, Bundler, Composer, Maven, Gradle) for outdated deps. Diagnoses CI failures with real job/step data. **Auto-fixes CI** by opening repair PRs. Finds stale issues. Health score every weekday morning.
-- **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. **Streams LLM output** in real-time. **Tracks token cost**. Supports **DeepSeek, OpenAI, and Anthropic Claude** models.
+- **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. **Streams LLM output** in real-time. **Estimates token cost**. Supports **DeepSeek, OpenAI, and Anthropic Claude** models.
 - **👤 Maintainer Profile** — One YAML file describing your code style, tone, PR standards. *Or skip it — defaults work.*
 
 ## Adopt in 60 Seconds

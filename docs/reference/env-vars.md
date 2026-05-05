@@ -94,6 +94,22 @@ Alternatively, use `RKP_TELEGRAM_CHAT_ID` and put the bot token in the profile.
 | `ANTHROPIC_API_KEY` | — | Anthropic Claude API key |
 | `LLM_BASE_URL` | `https://api.deepseek.com` | LLM API base URL. Set to `http://localhost:11434/v1` for Ollama. |
 
+### LLM Cost Estimates
+
+RepoKeeper reports estimated token cost when token usage is available. Built-in
+prices are snapshots for common models, not billing authority. Override them per
+model with USD per 1M tokens:
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `RKP_LLM_PRICE_DEEPSEEK_CHAT_INPUT` | `0.14` | Input price for `deepseek-chat` |
+| `RKP_LLM_PRICE_DEEPSEEK_CHAT_OUTPUT` | `0.28` | Output price for `deepseek-chat` |
+
+Model names are uppercased and non-alphanumeric characters become underscores.
+For example, `claude-sonnet-4-20250514` uses
+`RKP_LLM_PRICE_CLAUDE_SONNET_4_20250514_INPUT` and
+`RKP_LLM_PRICE_CLAUDE_SONNET_4_20250514_OUTPUT`.
+
 ## Example: GitHub Actions Secrets
 
 ```yaml

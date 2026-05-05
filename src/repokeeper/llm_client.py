@@ -9,6 +9,7 @@ Provides streaming output, token usage tracking, and cost estimation.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,9 +18,11 @@ from repokeeper.logs import get_logger
 
 logger = get_logger("llm")
 
-# ─── Token pricing (USD per 1M tokens) ─────────────────────────────────────
+# ─── Token pricing estimates (USD per 1M tokens) ───────────────────────────
 
-# Prices as of 2026-05. For accurate tracking, update periodically.
+# Built-in estimates are intentionally conservative snapshots, not billing
+# authority. Override with RKP_LLM_PRICE_<MODEL>_INPUT and
+# RKP_LLM_PRICE_<MODEL>_OUTPUT when provider pricing differs.
 PRICING: dict[str, dict[str, float]] = {
     "deepseek-chat": {"input": 0.14, "output": 0.28},
     "deepseek-reasoner": {"input": 0.55, "output": 2.19},
@@ -51,8 +54,31 @@ class LLMResponse:
     finish_reason: str = ""
 
 
+def _pricing_env_key(model: str) -> str:
+    """Return the normalized env var key segment for a model name."""
+    return re.sub(r"[^A-Z0-9]+", "_", model.upper()).strip("_")
+
+
+def _pricing_from_env(model: str) -> dict[str, float] | None:
+    """Read per-model pricing override from environment variables."""
+    key = _pricing_env_key(model)
+    input_price = os.environ.get(f"RKP_LLM_PRICE_{key}_INPUT")
+    output_price = os.environ.get(f"RKP_LLM_PRICE_{key}_OUTPUT")
+    if input_price is None or output_price is None:
+        return None
+    try:
+        return {"input": float(input_price), "output": float(output_price)}
+    except ValueError:
+        logger.warning("Ignoring invalid LLM pricing override for model %s", model)
+        return None
+
+
 def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Estimate cost based on token counts and known pricing."""
+    """Estimate cost based on token counts and configurable pricing."""
+    pricing = _pricing_from_env(model)
+    if pricing is not None:
+        return (prompt_tokens * pricing["input"] + completion_tokens * pricing["output"]) / 1_000_000
+
     pricing = PRICING.get(model)
     if pricing is None:
         # Try to match by prefix (e.g. "claude-" matches any Claude model)
@@ -166,7 +192,7 @@ def _chat_openai(
     )
 
     if cost > 0:
-        logger.info("Token usage: %d prompt + %d completion = %d tokens · $%.4f",
+        logger.info("Estimated token cost: %d prompt + %d completion = %d tokens · $%.4f",
                      prompt_tokens, completion_tokens, total_tokens, cost)
 
     return LLMResponse(content=content, usage=usage_info, model=model,
@@ -287,7 +313,7 @@ def _chat_anthropic(
     )
 
     if cost > 0:
-        logger.info("Token usage: %d input + %d output = %d tokens · $%.4f",
+        logger.info("Estimated token cost: %d input + %d output = %d tokens · $%.4f",
                      input_tokens, output_tokens, total_tokens, cost)
 
     return LLMResponse(content=content, usage=usage_info, model=model,

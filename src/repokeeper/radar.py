@@ -3,8 +3,9 @@ Module 1: Community Radar
 
 Monitors GitHub issues and Discussions for keywords specified in the maintainer
 profile. Uses AI to classify each hit as bug, feature request, or noise,
-filters low-confidence results, generates structured issue drafts, and
-pushes notifications for maintainer approval (email / Telegram / WeChat).
+filters low-confidence results, generates structured issue drafts, optionally
+creates issues automatically (with deduplication), and pushes notifications
+for maintainer approval (email / Telegram / WeChat).
 """
 
 from __future__ import annotations
@@ -57,6 +58,9 @@ class RadarReport:
     bugs: list[RadarHit] = field(default_factory=list)
     feature_requests: list[RadarHit] = field(default_factory=list)
     noise: list[RadarHit] = field(default_factory=list)
+    # Track issues created or updated by this scan
+    issues_created: list[dict[str, Any]] = field(default_factory=list)
+    issues_updated: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ─── GitHub scanning ─────────────────────────────────────────────────────────
@@ -341,7 +345,7 @@ feedback. Write clear, actionable issue descriptions.
 Respond with a JSON object:
 {
   "title": "Clear, descriptive title",
-  "body": "Full issue body in markdown, with sections: Description, Steps to Reproduce (if bug), Expected Behavior, Additional Context",
+  "body": "Full issue body in markdown, with sections: Description, Steps to Reproduce (if bug), Expected Behavior, Additional Context. The first line MUST be '> **Reported by @author** in [original discussion](URL)' linking to the source.",
   "labels": ["label1"]
 }
 """
@@ -384,6 +388,11 @@ def generate_issue_draft(
 - Tone: {tone.get('style', 'friendly')}
 
 Create a well-structured GitHub issue draft. Use {language}.
+
+Important: The body MUST start with this exact line as the first line:
+> **Reported by @{hit.author}** in [original discussion]({hit.url})
+
+Follow that with a blank line, then the structured issue description.
 """
 
     try:
@@ -599,11 +608,40 @@ def run_radar(
     actionable = filter_hits(hits, confidence_threshold)
     logger.info(f"  {len(actionable)} actionable after filtering (threshold={confidence_threshold})")
 
-    # Step 4: Generate drafts
-    for hit in actionable:
-        draft = generate_issue_draft(hit, llm_client, profile)
-        hit.suggested_title = draft.get("title", hit.suggested_title)
-        hit.suggested_labels = draft.get("labels", hit.suggested_labels)
+    # Step 4: Auto-create issues (or generate drafts for notification)
+    auto_create = radar_config.get("auto_create_issue", False)
+    gh_repo = gh_client.get_repo(repo) if gh_client else None
+
+    created: list[dict[str, Any]] = []
+    updated: list[dict[str, Any]] = []
+
+    if auto_create and gh_repo is not None:
+        logger.info(f"  Auto-creating issues for {len(actionable)} actionable hits...")
+        for hit in actionable:
+            try:
+                result = _process_radar_hit(hit, gh_repo, llm_client, profile)
+                if result is not None:
+                    if "action" in result:
+                        updated.append(result)
+                    else:
+                        created.append(result)
+            except Exception as e:
+                logger.error(f"  Failed to process hit {hit.url}: {e}")
+                # Fall back to generating just the draft for notification
+                draft = generate_issue_draft(hit, llm_client, profile)
+                hit.suggested_title = draft.get("title", hit.suggested_title)
+                hit.suggested_labels = draft.get("labels", hit.suggested_labels)
+    else:
+        # Draft-only mode (auto_create_issue is False)
+        for hit in actionable:
+            draft = generate_issue_draft(hit, llm_client, profile)
+            hit.suggested_title = draft.get("title", hit.suggested_title)
+            hit.suggested_labels = draft.get("labels", hit.suggested_labels)
+
+    if created:
+        logger.info(f"  Created {len(created)} new issues")
+    if updated:
+        logger.info(f"  Updated {len(updated)} existing issues")
 
     # Step 5: Build report
     report = RadarReport(
@@ -614,6 +652,8 @@ def run_radar(
         bugs=[h for h in actionable if h.category == "bug"],
         feature_requests=[h for h in actionable if h.category == "feature_request"],
         noise=[h for h in hits if h.category == "noise"],
+        issues_created=created,
+        issues_updated=updated,
     )
 
     # Step 6: Notify
@@ -621,6 +661,267 @@ def run_radar(
         notify_maintainer(profile, report)
 
     return report
+
+
+# ─── Branding ─────────────────────────────────────────────────────────────────
+
+RADAR_LABEL = "repokeeper-radar"
+
+# Hidden marker injected into issue bodies for reliable deduplication.
+# Format: <!-- repokeeper-radar:SOURCE_URL -->
+_RADAR_MARKER_PREFIX = "<!-- repokeeper-radar:"
+_RADAR_MARKER_SUFFIX = "-->"
+
+_REPOKEEPER_FOOTER = (
+    "---\n"
+    "<sub>🤖 Created by [RepoKeeper](https://github.com/shenxianpeng/repokeeper) "
+    "— AI-powered open source maintenance. "
+    "[Learn more](https://github.com/shenxianpeng/repokeeper#readme)</sub>"
+)
+
+
+def _radar_marker(source_url: str) -> str:
+    """Build the hidden deduplication marker for a source URL."""
+    return f"{_RADAR_MARKER_PREFIX}{source_url}{_RADAR_MARKER_SUFFIX}"
+
+
+def _extract_source_url_from_marker(body: str) -> str | None:
+    """Extract the source URL from a radar marker in an issue body.
+
+    Args:
+        body: Issue body text.
+
+    Returns:
+        Source URL if found, ``None`` otherwise.
+    """
+    import re as _re
+
+    m = _re.search(
+        rf"{_re.escape(_RADAR_MARKER_PREFIX)}(.+?){_re.escape(_RADAR_MARKER_SUFFIX)}",
+        body,
+    )
+    return m.group(1) if m else None
+
+
+def _build_radar_issue_body(draft_body: str, hit: RadarHit) -> str:
+    """Wrap the AI-generated draft body with RepoKeeper header, marker, and footer.
+
+    The final body structure::
+
+        > **Reported by @author** in [original discussion](url)
+        <blank line>
+        <draft body>
+        <!-- repokeeper-radar:SOURCE_URL -->
+        ---
+        <Repokeeper footer>
+
+    Args:
+        draft_body: AI-generated body from :func:`generate_issue_draft`.
+        hit: The RadarHit with source metadata.
+
+    Returns:
+        Full issue body string.
+    """
+    # Strip any existing header markers from the draft to avoid duplication
+    body = draft_body.strip()
+    for prefix in ("> **Reported by", "> **Originally reported by"):
+        if body.startswith(prefix):
+            # Remove the first line if it's a header
+            lines = body.split("\n", 1)
+            body = lines[1].strip() if len(lines) > 1 else ""
+            break
+
+    header = (
+        f"> **Reported by @{hit.author}** "
+        f"in [original {hit.source}]({hit.url})\n"
+    )
+    marker = _radar_marker(hit.url)
+
+    return f"{header}\n{body}\n\n{marker}\n{_REPOKEEPER_FOOTER}"
+
+
+# ─── Deduplication & issue creation ──────────────────────────────────────────
+
+
+def _find_existing_radar_issue(
+    gh_repo: Any,
+    source_url: str,
+    title: str,
+) -> Any | None:
+    """Find an existing issue created by RepoKeeper Radar for the same source.
+
+    Checks in this order:
+    1. Issues with the ``repokeeper-radar`` label that contain the hidden
+       marker for this exact source URL.
+    2. Open issues with the ``repokeeper-radar`` label that have a similar
+       title (case-insensitive, leading/trailing whitespace removed).
+
+    Args:
+        gh_repo: PyGithub Repository object.
+        source_url: URL of the original community post.
+        title: Suggested title for the new issue.
+
+    Returns:
+        The existing PyGithub Issue object if found, ``None`` otherwise.
+    """
+    marker = _radar_marker(source_url)
+    normalized_title = title.strip().lower()
+
+    try:
+        # Get issues with the radar label (open + closed, limit to recent)
+        issues = gh_repo.get_issues(labels=[RADAR_LABEL], state="all", sort="updated", direction="desc")
+        for issue in issues:
+            body = issue.body or ""
+
+            # Exact match by hidden marker (most reliable)
+            if marker in body:
+                logger.info(
+                    f"  Found existing issue #{issue.number} with matching radar marker"
+                )
+                return issue
+
+            # Fallback: title similarity (for issues created before marker support)
+            if issue.title.strip().lower() == normalized_title:
+                logger.info(
+                    f"  Found existing issue #{issue.number} with matching title"
+                )
+                return issue
+
+    except Exception as e:
+        logger.warning(f"  Deduplication search failed: {e}")
+
+    return None
+
+
+def _create_radar_issue(
+    gh_repo: Any,
+    hit: RadarHit,
+    draft_body: str,
+    labels: list[str],
+) -> dict[str, Any]:
+    """Create a GitHub issue from a Radar hit.
+
+    Applies the ``repokeeper-radar`` label alongside any category-specific
+    labels.  The body includes a hidden deduplication marker and professional
+    RepoKeeper branding.
+
+    Args:
+        gh_repo: PyGithub Repository object.
+        hit: The classified RadarHit.
+        draft_body: AI-generated body text.
+        labels: Labels to apply (from draft generation).
+
+    Returns:
+        Dict with ``issue_number``, ``issue_url``, ``source_url``.
+
+    Raises:
+        RuntimeError: If GitHub refuses to create the issue.
+    """
+    full_body = _build_radar_issue_body(draft_body, hit)
+    all_labels = list(dict.fromkeys([RADAR_LABEL] + labels))  # dedupe, keep order
+
+    try:
+        created = gh_repo.create_issue(
+            title=hit.suggested_title or hit.title,
+            body=full_body,
+            labels=all_labels,
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to create issue for {hit.url}: {e}"
+        ) from e
+
+    logger.info(
+        f"  Created issue #{created.number}: {created.title} "
+        f"(labels: {', '.join(all_labels)})"
+    )
+
+    return {
+        "issue_number": created.number,
+        "issue_url": created.html_url,
+        "source_url": hit.url,
+    }
+
+
+def _update_existing_radar_issue(
+    issue_obj: Any,
+    hit: RadarHit,
+) -> dict[str, Any]:
+    """Update an existing radar issue by adding a comment about new activity.
+
+    Does not modify the original issue body — only adds a timestamped comment
+    noting that the original discussion was seen again.  This keeps the issue
+    history clean while letting the maintainer know the topic is still active.
+
+    Args:
+        issue_obj: Existing PyGithub Issue object.
+        hit: The RadarHit that was matched.
+
+    Returns:
+        Dict with ``issue_number``, ``issue_url``, ``source_url``, ``action``.
+    """
+    comment = (
+        f"🔭 **RepoKeeper Radar** detected renewed activity on the "
+        f"[original {hit.source}]({hit.url}) "
+        f"(matched keyword: `{hit.matched_keyword}`).\n\n"
+        f"This issue may still be relevant. "
+        f"Consider reviewing or updating its status."
+    )
+
+    try:
+        issue_obj.create_comment(comment)
+    except Exception as e:
+        logger.warning(f"  Failed to add update comment to #{issue_obj.number}: {e}")
+
+    logger.info(
+        f"  Updated existing issue #{issue_obj.number} with activity comment"
+    )
+
+    return {
+        "issue_number": issue_obj.number,
+        "issue_url": issue_obj.html_url,
+        "source_url": hit.url,
+        "action": "commented",
+    }
+
+
+def _process_radar_hit(
+    hit: RadarHit,
+    gh_repo: Any,
+    llm_client: Any,
+    profile: dict,
+) -> dict[str, Any] | None:
+    """Process a single actionable radar hit: draft → deduplicate → create/update.
+
+    Args:
+        hit: Classified and filtered RadarHit with a draft already generated.
+        gh_repo: PyGithub Repository object.
+        llm_client: OpenAI-compatible LLM client.
+        profile: Maintainer profile dict.
+
+    Returns:
+        Result dict (``issues_created`` or ``issues_updated`` shape),
+        or ``None`` if skipped.
+    """
+    # Generate the AI draft for the issue body (without branding wrapper)
+    draft = generate_issue_draft(hit, llm_client, profile)
+    hit.suggested_title = draft.get("title", hit.suggested_title)
+    hit.suggested_labels = draft.get("labels", hit.suggested_labels)
+    draft_body = draft.get("body", hit.body[:2000])
+
+    # Check for existing issue
+    existing = _find_existing_radar_issue(
+        gh_repo,
+        source_url=hit.url,
+        title=hit.suggested_title,
+    )
+
+    if existing is not None:
+        # Update existing issue with a comment instead of creating duplicate
+        return _update_existing_radar_issue(existing, hit)
+
+    # Create new issue
+    return _create_radar_issue(gh_repo, hit, draft_body, hit.suggested_labels)
 
 
 def generate_radar_summary(report: RadarReport) -> str:
@@ -656,6 +957,26 @@ def generate_radar_summary(report: RadarReport) -> str:
 
     if not report.hits:
         lines.append("✅ No actionable hits found.")
+        lines.append("")
+
+    if report.issues_created:
+        lines.append("## 📝 Issues Created")
+        lines.append("")
+        for entry in report.issues_created:
+            lines.append(
+                f"- [#{entry['issue_number']}]({entry['issue_url']}) "
+                f"← [source]({entry['source_url']})"
+            )
+        lines.append("")
+
+    if report.issues_updated:
+        lines.append("## 🔄 Issues Updated (duplicates)")
+        lines.append("")
+        for entry in report.issues_updated:
+            lines.append(
+                f"- [#{entry['issue_number']}]({entry['issue_url']}) "
+                f"← [source]({entry['source_url']})"
+            )
         lines.append("")
 
     return "\n".join(lines)

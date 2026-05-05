@@ -2,6 +2,37 @@
 
 All notable changes to RepoKeeper will be documented in this file.
 
+## [0.6.0] - 2026-05-05
+
+### Added
+- Make LLM cost estimates configurable.
+
+### Changed
+- Limit source distribution contents.
+- Raise the coverage gate.
+- Clarify workflow install paths.
+
+### Fixed
+- Constrain LLM file writes to repository-relative paths.
+- Update commit preprocessors and parsers for better release note categorization.
+
+## [0.5.0] - 2026-05-04
+
+### Added
+- Improve setup diagnostics.
+
+### Documentation
+- Sync README workflow setup with the quick-start guide.
+- Document the security model.
+- Add contribution templates.
+- Add `doctor` to the quick start.
+
+### Fixed
+- Include workflow templates in the package.
+
+### Other Changes
+- Add `uv.lock`.
+
 ## [0.4.0] - 2026-05-03
 
 ### Added

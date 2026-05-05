@@ -27,6 +27,7 @@ from repokeeper.agent import (
     strip_blocked_paths,
     validate_implementation,
 )
+from repokeeper.git_ops import safe_repo_path
 from repokeeper.llm_client import TokenUsage
 
 # ── Module imports ────────────────────────────────────────────────────────────
@@ -493,6 +494,40 @@ def test_strip_blocked_paths_missing_sections():
     assert stripped == []
 
 
+# ── safe_repo_path ──────────────────────────────────────────────────────────
+
+def test_safe_repo_path_allows_repo_relative_path(tmp_path):
+    target = safe_repo_path("src/repokeeper.py", tmp_path)
+
+    assert target == tmp_path.resolve() / "src" / "repokeeper.py"
+
+
+def test_safe_repo_path_rejects_absolute_path(tmp_path):
+    with pytest.raises(ValueError, match="absolute path"):
+        safe_repo_path(str(tmp_path / "outside.py"), tmp_path)
+
+
+def test_safe_repo_path_rejects_parent_traversal(tmp_path):
+    with pytest.raises(ValueError, match="path traversal"):
+        safe_repo_path("../outside.py", tmp_path)
+
+
+def test_safe_repo_path_rejects_blocked_prefix(tmp_path):
+    with pytest.raises(ValueError, match="blocked path"):
+        safe_repo_path(".github/workflows/ci.yml", tmp_path)
+
+
+def test_safe_repo_path_rejects_symlink_escape(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "link").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="outside repository"):
+        safe_repo_path("link/file.py", repo, blocked_prefixes=())
+
+
 # ── apply_and_push ──────────────────────────────────────────────────────────
 
 def _setup_git_repo(workdir):
@@ -605,6 +640,45 @@ def test_apply_and_push_blocked_paths_skipped(tmp_path, monkeypatch):
     branch, files = apply_and_push(impl, "token", "owner/repo")
     assert "real.py" in files
     assert not Path(".github/workflows/ci.yml").exists()
+
+
+def test_apply_and_push_unsafe_paths_skipped(tmp_path, monkeypatch):
+    """Absolute and parent traversal paths are skipped before writing."""
+    workdir = tmp_path / "repo"
+    _setup_git_repo(workdir)
+    monkeypatch.chdir(workdir)
+    subprocess = __import__("subprocess")
+
+    import repokeeper.git_ops as git_ops
+
+    Path("real.py").write_text("real")
+    subprocess.run(["git", "add", "real.py"], check=True)
+    subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
+
+    real_git = git_ops.git
+
+    def mock_git(*args, **kwargs):
+        if args and args[0] == "push":
+            return type("CompletedProcess", (), {"stdout": "", "stderr": "", "returncode": 0})()
+        return real_git(*args, **kwargs)
+
+    monkeypatch.setattr(git_ops, "git", mock_git)
+
+    outside = tmp_path / "outside.py"
+    impl = {
+        "branch_name": "repokeeper/issue-1-unsafe",
+        "commit_message": "test",
+        "changes": {
+            "../outside.py": "bad",
+            str(outside): "bad",
+            "real.py": "updated",
+        },
+    }
+
+    branch, files = apply_and_push(impl, "token", "owner/repo")
+    assert branch == "repokeeper/issue-1-unsafe"
+    assert "real.py" in files
+    assert not outside.exists()
 
 
 def test_apply_and_push_creates_parent_dirs(tmp_path, monkeypatch):

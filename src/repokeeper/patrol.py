@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .git_ops import safe_repo_path
 from .profile import load_profile
 
 logger = logging.getLogger(__name__)
@@ -1062,11 +1063,23 @@ def attempt_ci_auto_fix(
                 check=False, capture_output=True, cwd=repo_path)
 
         for filepath, content in changes.items():
-            target = repo_path / filepath
+            try:
+                target = safe_repo_path(filepath, repo_path, blocked_prefixes=())
+            except ValueError as exc:
+                logger.warning(f"Skipping unsafe CI auto-fix path: {exc}")
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
         _sp.run(["git", "add", "-A"], check=False, capture_output=True, cwd=repo_path)
+        diff_result = _sp.run(
+            ["git", "diff", "--cached", "--name-only"],
+            check=False, capture_output=True, text=True, cwd=repo_path,
+        )
+        if not diff_result.stdout.strip():
+            logger.warning("CI auto-fix produced no safe file changes")
+            return None
+
         _sp.run(
             ["git", "commit", "-m", result.get("commit_message", "ci: auto-fix")],
             check=False, capture_output=True, cwd=repo_path,

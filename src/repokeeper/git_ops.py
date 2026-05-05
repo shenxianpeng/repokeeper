@@ -9,8 +9,54 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Paths the agent must never modify (GitHub Actions security)
+# Paths the implementation agent must never modify (GitHub Actions security)
 BLOCKED_PREFIXES = (".github/workflows/",)
+
+
+def safe_repo_path(
+    filepath: str,
+    repo_root: str | Path = ".",
+    blocked_prefixes: tuple[str, ...] = BLOCKED_PREFIXES,
+) -> Path:
+    """Resolve a user/LLM-provided path and ensure it stays inside the repo.
+
+    Args:
+        filepath: Repository-relative path from an LLM response.
+        repo_root: Repository root directory.
+        blocked_prefixes: Repository-relative prefixes to reject.
+
+    Returns:
+        Absolute path under ``repo_root``.
+
+    Raises:
+        ValueError: If the path is absolute, escapes the repo, or is blocked.
+    """
+    raw_path = Path(filepath)
+    if raw_path.is_absolute():
+        raise ValueError(f"Refusing absolute path: {filepath}")
+    if any(part == ".." for part in raw_path.parts):
+        raise ValueError(f"Refusing path traversal: {filepath}")
+
+    normalized = raw_path.as_posix()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if any(normalized == prefix.rstrip("/") or normalized.startswith(prefix)
+           for prefix in blocked_prefixes):
+        raise ValueError(f"Refusing blocked path: {filepath}")
+
+    root = Path(repo_root).resolve()
+    candidate = root / raw_path
+    if candidate.exists():
+        resolved = candidate.resolve()
+    else:
+        resolved = candidate.parent.resolve() / candidate.name
+
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"Refusing path outside repository: {filepath}") from exc
+
+    return resolved
 
 
 def git(*args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -64,19 +110,21 @@ def apply_and_push(
 
     # Write modified files (filter blocked paths)
     for filepath, content in implementation.get("changes", {}).items():
-        if filepath.startswith(BLOCKED_PREFIXES):
-            print(f"[repokeeper] Skipping blocked path: {filepath}", file=sys.stderr)
+        try:
+            p = safe_repo_path(filepath)
+        except ValueError as exc:
+            print(f"[repokeeper] Skipping unsafe path: {exc}", file=sys.stderr)
             continue
-        p = Path(filepath)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
 
     # Write new files (filter blocked paths)
     for filepath, content in implementation.get("new_files", {}).items():
-        if filepath.startswith(BLOCKED_PREFIXES):
-            print(f"[repokeeper] Skipping blocked path: {filepath}", file=sys.stderr)
+        try:
+            p = safe_repo_path(filepath)
+        except ValueError as exc:
+            print(f"[repokeeper] Skipping unsafe path: {exc}", file=sys.stderr)
             continue
-        p = Path(filepath)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
 

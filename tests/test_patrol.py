@@ -1096,6 +1096,52 @@ def test_attempt_ci_auto_fix_no_changes(tmp_path, monkeypatch):
     assert result is None
 
 
+def test_attempt_ci_auto_fix_skips_unsafe_paths(tmp_path, monkeypatch):
+    """CI auto-fix ignores paths that would escape repo_path."""
+    import subprocess as sp
+    sp.run(["git", "init", "-b", "main", str(tmp_path)], capture_output=True, check=True)
+    sp.run(["git", "-C", str(tmp_path), "config", "user.email", "test@test.test"], check=True)
+    sp.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True)
+
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "ci.yml").write_text("name: CI\non: push")
+    sp.run(["git", "-C", str(tmp_path), "add", "-A"], capture_output=True)
+    sp.run(["git", "-C", str(tmp_path), "commit", "-m", "init"], capture_output=True)
+
+    class Message:
+        content = json.dumps({
+            "skip": False, "summary": "fix", "commit_message": "ci: fix",
+            "changes": {"../outside.yml": "bad"},
+        })
+
+    class Completions:
+        def create(self, **kwargs):
+            return type("Response", (), {"choices": [type("C", (), {"message": Message()})()]})()
+
+    class _LLMBridge:
+        def chat(self, system='', messages=None, model='', temperature=0.1, max_tokens=8000, stream=False):
+            all_msgs = [{'role': 'system', 'content': system}] + (messages or [])
+            resp = Completions().create(model=model, messages=all_msgs, temperature=temperature, max_tokens=max_tokens)
+            resp.content = resp.choices[0].message.content
+            resp.usage = type('U', (), {'total_tokens': 0, 'cost_usd': 0.0, 'prompt_tokens': 0, 'completion_tokens': 0, 'model': model})()
+            return resp
+
+    failure = CIFailure(
+        "CI", 1, "https://x", datetime(2026, 1, 1), "failure",
+        diagnosis="broken", suggested_fix="fix", auto_fixable=True,
+        log_snippet="log",
+    )
+
+    result = attempt_ci_auto_fix(
+        failure, _LLMBridge(), MagicMock(), "owner/repo", {},
+        repo_path=tmp_path,
+    )
+
+    assert result is None
+    assert not (tmp_path.parent / "outside.yml").exists()
+
+
 def test_attempt_ci_auto_fix_creates_pr(tmp_path, monkeypatch):
     """Happy path: LLM returns changes, creates branch and PR."""
     # Setup git repo

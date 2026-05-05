@@ -94,7 +94,7 @@ alternatives.
 
 ### Example
 
-For a project named `commit-check`:
+For a project named `gitstats`:
 
 ```yaml
 radar:
@@ -110,12 +110,12 @@ radar:
 
 This triggers:
 
-- Issues search: `"commit-check" is:issue is:open -repo:shenxianpeng/commit-check`
-- Discussions search: `"commit-check" type:discussion -repo:shenxianpeng/commit-check`
+- Issues search: `"gitstats" is:issue is:open -repo:shenxianpeng/gitstats`
+- Discussions search: `"gitstats" type:discussion -repo:shenxianpeng/gitstats`
 
-Any issue or discussion mentioning "commit-check" that also contains
+Any issue or discussion mentioning "gitstats" that also contains
 "bug", "crash", or "security" will be classified by AI and a draft issue
-created in the `commit-check` repository.
+created in the `gitstats` repository.
 
 !!! tip "GitHub Search Syntax"
     `cross_repo_query` supports the full

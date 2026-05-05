@@ -1360,7 +1360,19 @@ def test_git_with_capture():
     assert hasattr(result, "stdout")
 
 
-# ── collect_repo_files: OSError ─────────────────────────────────────────────
+# ── collect_repo_files: edge cases ───────────────────────────────────────────
+
+def test_collect_repo_files_skips_directories(tmp_path, monkeypatch):
+    """Directories are skipped via the `not p.is_file()` branch."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "subdir").mkdir()
+    (tmp_path / "subdir" / "nested.py").write_text("nested")
+    Path("top.py").write_text("top")
+
+    files = collect_repo_files()
+    assert "top.py" in files
+    assert "subdir/nested.py" in files
+
 
 def test_collect_repo_files_oserror_trigger(tmp_path, monkeypatch):
     """OSError in Path.read_text is caught and file is skipped."""
@@ -1428,3 +1440,136 @@ def test_run_agent_blocked_paths_result_and_changes_present(monkeypatch):
     result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
     assert result["skip"] is False
     assert result["pr_url"] == "https://github.com/owner/repo/pull/2"
+
+
+# ── safe_repo_path: dot-slash prefix ─────────────────────────────────────────
+
+def test_safe_repo_path_strips_dot_slash_prefix(tmp_path):
+    """Paths with './' prefix are normalized before blocked-prefix check."""
+    target = safe_repo_path("./src/repokeeper.py", tmp_path)
+    assert target == tmp_path.resolve() / "src" / "repokeeper.py"
+
+
+# ── apply_and_push: blocked paths in new_files ──────────────────────────────
+
+def test_apply_and_push_blocked_new_files_skipped(tmp_path, monkeypatch):
+    """Blocked workflow paths in new_files are skipped with warning."""
+    workdir = tmp_path / "repo"
+    _setup_git_repo(workdir)
+    monkeypatch.chdir(workdir)
+    subprocess = __import__("subprocess")
+
+    import repokeeper.git_ops as git_ops
+
+    Path("real.py").write_text("real")
+    subprocess.run(["git", "add", "real.py"], check=True)
+    subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
+
+    real_git = git_ops.git
+
+    def mock_git(*args, **kwargs):
+        if args and args[0] == "push":
+            return type("CompletedProcess", (), {"stdout": "", "stderr": "", "returncode": 0})()
+        return real_git(*args, **kwargs)
+
+    monkeypatch.setattr(git_ops, "git", mock_git)
+
+    impl = {
+        "branch_name": "repokeeper/issue-1-blocked-new",
+        "commit_message": "test",
+        "changes": {"real.py": "updated"},
+        "new_files": {".github/workflows/ci.yml": "blocked"},
+    }
+
+    branch, files = apply_and_push(impl, "token", "owner/repo")
+    assert "real.py" in files
+    assert not Path(".github/workflows/ci.yml").exists()
+
+
+# ── apply_and_push: passing verification ────────────────────────────────────
+
+def test_apply_and_push_with_passing_verification(tmp_path, monkeypatch):
+    """When verification commands all pass, commit proceeds."""
+    workdir = tmp_path / "repo"
+    _setup_git_repo(workdir)
+    monkeypatch.chdir(workdir)
+    subprocess = __import__("subprocess")
+
+    Path("existing.py").write_text("old")
+    subprocess.run(["git", "add", "existing.py"], check=True)
+    subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
+
+    import repokeeper.git_ops as git_ops
+
+    real_git = git_ops.git
+
+    def mock_git(*args, **kwargs):
+        if args and args[0] == "push":
+            return type("CompletedProcess", (), {"stdout": "", "stderr": "", "returncode": 0})()
+        return real_git(*args, **kwargs)
+
+    monkeypatch.setattr(git_ops, "git", mock_git)
+
+    impl = {
+        "branch_name": "repokeeper/issue-1-pass",
+        "commit_message": "fix: pass",
+        "changes": {"existing.py": "new"},
+    }
+    profile = {"agent": {"verify_commands": [[sys.executable, "-c", "print('ok')"]]}}
+
+    branch, files = apply_and_push(impl, "token", "owner/repo", profile)
+    assert branch == "repokeeper/issue-1-pass"
+    assert "existing.py" in files
+
+    result = subprocess.run(["git", "log", "--oneline"], capture_output=True, text=True, check=True)
+    assert "fix: pass" in result.stdout
+
+
+# ── discover_verification_commands: edge cases ───────────────────────────────
+
+def test_discover_verification_commands_non_list_config(tmp_path):
+    """Non-list, non-False verify_commands returns empty list."""
+    profile = {"agent": {"verify_commands": "just a string"}}
+    assert discover_verification_commands(profile, tmp_path) == []
+
+
+def test_discover_verification_commands_filter_invalid_entries(tmp_path):
+    """Invalid entries (non-string, non-list) are filtered out."""
+    profile = {"agent": {"verify_commands": [42, ["ruff", "check", "."]]}}
+    commands = discover_verification_commands(profile, tmp_path)
+    assert commands == [["ruff", "check", "."]]
+
+
+# ── format_verification_failures: all-pass edge case ────────────────────────
+
+def test_format_verification_failures_all_pass():
+    """When all commands pass, return empty string."""
+    from repokeeper.verifier import VerificationResult
+
+    results = [
+        VerificationResult(command=["ruff", "check", "."], returncode=0, stdout="", stderr=""),
+    ]
+    assert format_verification_failures(results) == ""
+
+
+# ── __version__ fallback ─────────────────────────────────────────────────────
+
+def test_version_package_not_found():
+    """When package metadata is unavailable, __version__ falls back to '0.0.0'."""
+    import importlib
+
+    import repokeeper
+
+    original_version = importlib.metadata.version
+
+    def raise_error(name):
+        from importlib.metadata import PackageNotFoundError
+        raise PackageNotFoundError
+
+    try:
+        importlib.metadata.version = raise_error
+        importlib.reload(repokeeper)
+        assert repokeeper.__version__ == "0.0.0"
+    finally:
+        importlib.metadata.version = original_version
+        importlib.reload(repokeeper)

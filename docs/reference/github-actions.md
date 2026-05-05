@@ -57,7 +57,9 @@ permissions:
 
 1. **Checkout** — clone the repository with full history
 2. **Setup Python** — install Python 3.10+
-3. **Install RepoKeeper** — `pip install repokeeper` or `pip install -e .`
+3. **Install RepoKeeper** — published templates use `pip install repokeeper`;
+   this repository's own workflows use `pip install -e .` to dogfood the
+   checked-out source
 4. **Run agent** — execute `repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"`
 
 ### Required Secrets

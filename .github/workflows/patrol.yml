@@ -21,7 +21,9 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      # This repository dogfoods the checked-out source. Published templates use
+      # `pip install repokeeper` so downstream repos run the latest PyPI release.
+      - name: Install local checkout
         run: pip install -e .
 
       - name: Run Daily Patrol

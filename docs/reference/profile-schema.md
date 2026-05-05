@@ -69,7 +69,7 @@ Complete JSON Schema for `repokeeper.yml`.
 
 | Key | Type | Required | Default | Valid Values |
 |-----|------|----------|---------|--------------|
-| `model` | string | No | `"deepseek-chat"` | `"deepseek-chat"`, `"deepseek-reasoner"`, `"gpt-4o"`, `"gpt-4-turbo"`, `"claude-sonnet-4-20250514"`, `"claude-3-5-haiku-20241022"` |
+| `model` | string | No | `"deepseek-chat"` | `"deepseek-chat"`, `"deepseek-reasoner"`, `"gpt-4o"`, `"gpt-4o-mini"`, `"claude-sonnet-4-20250514"`, `"claude-3-5-haiku-20241022"` |
 | `implement` | boolean | No | `true` | `true`, `false` |
 | `max_context_files` | integer | No | `40` | 1–100 |
 | `temperature` | float | No | `0.1` | 0.0–2.0 |
@@ -85,6 +85,8 @@ Complete JSON Schema for `repokeeper.yml`.
 | `keywords` | list[string] | No | `[]` | Any strings |
 | `confidence_threshold` | float | No | `0.7` | 0.0–1.0 |
 | `auto_create_issue` | boolean | No | `false` | `true`, `false` |
+| `cross_repo_search` | boolean | No | `false` | `true`, `false` |
+| `cross_repo_query` | string | No | `""` | Full GitHub search syntax |
 
 ## `patrol`
 

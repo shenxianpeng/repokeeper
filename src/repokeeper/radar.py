@@ -224,6 +224,202 @@ def scan_discussions(
     return hits
 
 
+# ─── Cross-repo (global) scanning ────────────────────────────────────────────
+
+def scan_global_issues(
+    gh_client: Any,
+    search_query: str,
+    keywords: list[str],
+    since: datetime | None = None,
+    max_results: int = 50,
+) -> list[RadarHit]:
+    """Scan GitHub globally for issues mentioning the project.
+
+    Uses the `GitHub Search API <https://docs.github.com/en/rest/search>`_
+    to find issues across **all public repositories** that match the query.
+
+    Args:
+        gh_client: PyGithub Github instance.
+        search_query: GitHub search query (e.g. ``'"myproject" is:issue is:open'``).
+        keywords: Optional keywords to match within result bodies.
+                  If empty, every search result is included.
+        since: Only include issues updated after this datetime.
+        max_results: Max issues to return.
+
+    Returns:
+        List of RadarHit objects (``repo`` field reflects the source repo).
+    """
+    hits: list[RadarHit] = []
+
+    try:
+        results = gh_client.search_issues(
+            query=search_query,
+            sort="updated",
+            order="desc",
+        )
+
+        count = 0
+        for issue in results:
+            if count >= max_results:
+                break
+            if since and issue.updated_at < since:
+                continue
+
+            combined = f"{issue.title} {issue.body or ''}".lower()
+
+            matched_kw = ""
+            if keywords:
+                for kw in keywords:
+                    if kw.lower() in combined:
+                        matched_kw = kw
+                        break
+            else:
+                # No keywords → include every result
+                matched_kw = search_query
+
+            if matched_kw:
+                issue_repo = getattr(issue, "repository", None)
+                repo_full = issue_repo.full_name if issue_repo else "unknown"
+
+                hits.append(RadarHit(
+                    source="issue",
+                    repo=repo_full,
+                    number=issue.number,
+                    title=issue.title,
+                    body=issue.body or "",
+                    url=issue.html_url,
+                    author=issue.user.login if issue.user else "unknown",
+                    created_at=issue.created_at,
+                    matched_keyword=matched_kw,
+                ))
+
+            count += 1
+
+    except Exception as e:
+        logger.warning(f"Global issue search failed: {e}")
+
+    return hits
+
+
+_GLOBAL_DISCUSSION_GRAPHQL = """
+query($query: String!, $first: Int!) {
+  search(query: $query, type: DISCUSSION, first: $first) {
+    nodes {
+      ... on Discussion {
+        number
+        title
+        body
+        url
+        createdAt
+        updatedAt
+        author { login }
+        repository { nameWithOwner }
+      }
+    }
+  }
+}
+"""
+
+
+def scan_global_discussions(
+    gh_client: Any,
+    search_query: str,
+    keywords: list[str],
+    since: datetime | None = None,
+    max_results: int = 30,
+) -> list[RadarHit]:
+    """Scan GitHub globally for discussions mentioning the project.
+
+    Uses the `GitHub GraphQL API
+    <https://docs.github.com/en/graphql/reference/queries#search>`_
+    to search discussions across **all public repositories**.
+
+    Args:
+        gh_client: PyGithub Github instance.
+        search_query: GitHub search query (e.g. ``'"myproject" type:discussion'``).
+        keywords: Optional keywords to match within result bodies.
+                  If empty, every search result is included.
+        since: Only include discussions updated after this datetime.
+        max_results: Max discussions to return.
+
+    Returns:
+        List of RadarHit objects (``repo`` field reflects the source repo).
+    """
+    hits: list[RadarHit] = []
+
+    try:
+        # Access the internal GraphQL requester.
+        # PyGithub does not expose a public `graphql_query` method on the
+        # Github object, but the underlying Requester supports it.
+        requester = gh_client._Github__requester  # type: ignore[attr-defined]
+
+        result = requester.graphql_query(
+            query=_GLOBAL_DISCUSSION_GRAPHQL,
+            variables={"query": search_query, "first": max_results},
+        )
+
+        nodes = result.get("data", {}).get("search", {}).get("nodes", [])
+
+        for node in nodes:
+            if not node:
+                continue
+
+            body = node.get("body", "") or ""
+            combined = f"{node.get('title', '')} {body}".lower()
+
+            matched_kw = ""
+            if keywords:
+                for kw in keywords:
+                    if kw.lower() in combined:
+                        matched_kw = kw
+                        break
+            else:
+                matched_kw = search_query
+
+            if not matched_kw:
+                continue
+
+            created_at_str = node.get("createdAt", "")
+            created_at = (
+                datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                if created_at_str else datetime.now()
+            )
+
+            updated_at_str = node.get("updatedAt", created_at_str)
+            if updated_at_str and since:
+                updated_at = datetime.fromisoformat(
+                    updated_at_str.replace("Z", "+00:00")
+                )
+                if updated_at < since:
+                    continue
+
+            author = "unknown"
+            if node.get("author"):
+                author = node["author"].get("login", "unknown")
+
+            repo_name = (
+                node.get("repository", {}).get("nameWithOwner", "unknown")
+                if node.get("repository") else "unknown"
+            )
+
+            hits.append(RadarHit(
+                source="discussion",
+                repo=repo_name,
+                number=node["number"],
+                title=node.get("title", ""),
+                body=body,
+                url=node["url"],
+                author=author,
+                created_at=created_at,
+                matched_keyword=matched_kw,
+            ))
+
+    except Exception as e:
+        logger.warning(f"Global discussion search failed: {e}")
+
+    return hits
+
+
 # ─── AI Classification ───────────────────────────────────────────────────────
 
 CLASSIFIER_SYSTEM_PROMPT = """\
@@ -562,16 +758,26 @@ def run_radar(
 ) -> RadarReport:
     """Run a complete Community Radar scan.
 
-    1. Scans issues and discussions for keywords from profile.
-    2. Classifies each hit with AI.
-    3. Filters low-confidence / noise results.
-    4. Generates issue drafts for actionable hits.
-    5. Sends notifications.
+    Two modes are supported:
+
+    * **Local mode** (default) — scans *this repo's* issues and discussions
+      for keywords configured in ``radar.keywords``.
+    * **Cross-repo mode** — when ``radar.cross_repo_search`` is ``true``,
+      searches *all of GitHub* for mentions of the project (or a custom
+      ``radar.cross_repo_query``) via the GitHub Search and GraphQL APIs.
+      Results are deduplicated and issues are created in *this repo*.
+
+    Pipeline:
+        1. Scan issues and discussions (local or global).
+        2. Classify each hit with AI.
+        3. Filter low-confidence / noise results.
+        4. Generate issue drafts or auto-create issues.
+        5. Send notifications.
 
     Args:
         gh_client: PyGithub Github instance.
         llm_client: OpenAI-compatible LLM client.
-        repo: Repository slug (owner/repo).
+        repo: Repository slug (owner/repo) — issues are created here.
         profile: Maintainer profile (loaded if None).
         since: Only scan items after this datetime.
 
@@ -587,17 +793,46 @@ def run_radar(
         return RadarReport(repo=repo, scanned_at=datetime.now(), total_scanned=0)
 
     keywords = radar_config.get("keywords", [])
-    if not keywords:
-        logger.warning(f"No keywords configured for {repo}. Add 'radar.keywords' to repokeeper.yml.")
-        return RadarReport(repo=repo, scanned_at=datetime.now(), total_scanned=0)
+    cross_repo = radar_config.get("cross_repo_search", False)
 
     confidence_threshold = radar_config.get("confidence_threshold", 0.7)
     model = profile.get("agent", {}).get("model", "deepseek-chat")
 
     # Step 1: Scan
-    logger.info(f"🔭 Radar scanning {repo} for keywords: {keywords}")
-    hits = scan_issues(gh_client, repo, keywords, since=since)
-    hits += scan_discussions(gh_client, repo, keywords, since=since)
+    if cross_repo:
+        # ── Cross-repo (global) mode ──
+        # Build the search query from cross_repo_query or derive from repo name.
+        query = radar_config.get("cross_repo_query", "")
+        if not query:
+            project_name = repo.split("/")[-1] if "/" in repo else repo
+            query = f'"{project_name}"'
+
+        # Exclude the project's own repo to focus on *other* communities.
+        exclude_repo = f" -repo:{repo}"
+
+        issue_query = f"{query} is:issue is:open{exclude_repo}"
+        discussion_query = f"{query} type:discussion{exclude_repo}"
+
+        logger.info(
+            f"🔭 Radar scanning globally for: {query} "
+            f"(issues + discussions, excluding {repo})"
+        )
+        hits = scan_global_issues(gh_client, issue_query, keywords, since=since)
+        hits += scan_global_discussions(gh_client, discussion_query, keywords, since=since)
+
+    else:
+        # ── Single-repo (local) mode ──
+        if not keywords:
+            logger.warning(
+                f"No keywords configured for {repo}. "
+                f"Add 'radar.keywords' to repokeeper.yml."
+            )
+            return RadarReport(repo=repo, scanned_at=datetime.now(), total_scanned=0)
+
+        logger.info(f"🔭 Radar scanning {repo} for keywords: {keywords}")
+        hits = scan_issues(gh_client, repo, keywords, since=since)
+        hits += scan_discussions(gh_client, repo, keywords, since=since)
+
     logger.info(f"  Found {len(hits)} raw hits")
 
     # Step 2: Classify

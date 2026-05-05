@@ -17,6 +17,11 @@ All notable changes to RepoKeeper will be documented in this file.
   to the project — turning every issue into organic promotion.
 - Radar workflow template now includes `issues: write` permission for
   auto-creation support.
+- **Cross-repo global search.** When `cross_repo_search: true`, the Radar
+  searches *all of GitHub* (not just your own repo) for mentions of your
+  project. Finds issues and discussions in other communities that reference
+  your project name. Customizable via `cross_repo_query` with full GitHub
+  search syntax. Uses both REST (issues) and GraphQL (discussions) APIs.
 
 ### Documentation
 - Updated Radar docs with auto-creation, deduplication, and branding sections.

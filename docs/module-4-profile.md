@@ -243,9 +243,11 @@ radar:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the radar |
-| `keywords` | list | `[]` | Keywords to watch for |
+| `keywords` | list | `[]` | Keywords to watch for. Optional in cross-repo mode. |
 | `confidence_threshold` | float | `0.7` | Min AI confidence (0–1) |
 | `auto_create_issue` | bool | `false` | Auto-create issues |
+| `cross_repo_search` | bool | `false` | Search all of GitHub for mentions |
+| `cross_repo_query` | string | `""` | Custom search query (default: repo name) |
 
 ### `patrol` — Daily Patrol Settings
 
@@ -392,6 +394,8 @@ radar:
     - performance
   confidence_threshold: 0.7
   auto_create_issue: false
+  cross_repo_search: false
+  cross_repo_query: ""
 
 patrol:
   enabled: true

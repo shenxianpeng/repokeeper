@@ -53,9 +53,78 @@ radar:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable/disable the radar |
-| `keywords` | list | `[]` | Keywords to watch for (case-insensitive) |
+| `keywords` | list | `[]` | Keywords to watch for (case-insensitive). In cross-repo mode, keywords are optional — all matching results are included. |
 | `confidence_threshold` | float | `0.7` | Minimum AI confidence to act (0.0–1.0) |
 | `auto_create_issue` | bool | `false` | Auto-create issues (`true`) or draft for approval (`false`). When enabled, issues are created with the `repokeeper-radar` label, a header linking to the original discussion, and a branded footer. Requires `issues: write` workflow permission. |
+| `cross_repo_search` | bool | `false` | Search **all of GitHub** for mentions of your project, not just issues in your own repo. See `[Cross-Repo Search](#cross-repo-search)`. |
+| `cross_repo_query` | string | `""` | Custom GitHub search query for cross-repo mode. Defaults to `"<repo-name>"` (quoted). Supports full GitHub search syntax. |
+
+## Cross-Repo Search
+
+When `cross_repo_search: true`, the radar does **not** limit itself to issues
+filed in your own repository. Instead, it searches **all of GitHub** using the
+[GitHub Search API](https://docs.github.com/en/rest/search) (for issues) and
+GraphQL (for discussions).
+
+This is useful for discovering community discussions about your project that
+happen in *other* people's repositories — for example, a bug report about your
+library filed in a downstream project, or a discussion comparing your tool to
+alternatives.
+
+### How It Works
+
+1. **Build search query** — by default, the radar searches for
+   `"<project-name>" is:issue is:open -repo:owner/name` (issues) and
+   `"<project-name>" type:discussion -repo:owner/name` (discussions).
+   Your own repository is excluded to avoid re-discovering existing issues.
+
+2. **Customize with `cross_repo_query`** — override the default query with
+   full GitHub search syntax:
+   ```yaml
+   radar:
+     cross_repo_search: true
+     cross_repo_query: '"my-lib" OR "mylib"'
+   ```
+
+3. **Keyword filtering** — results are further filtered against
+   `radar.keywords`. If keywords are empty, **all** results are included.
+
+4. **AI classification + issue creation** — the same pipeline applies:
+   classify with AI → filter by confidence → create issues in **your** repo.
+
+### Example
+
+For a project named `commit-check`:
+
+```yaml
+radar:
+  enabled: true
+  cross_repo_search: true
+  keywords:
+    - bug
+    - crash
+    - security
+  confidence_threshold: 0.7
+  auto_create_issue: false
+```
+
+This triggers:
+
+- Issues search: `"commit-check" is:issue is:open -repo:shenxianpeng/commit-check`
+- Discussions search: `"commit-check" type:discussion -repo:shenxianpeng/commit-check`
+
+Any issue or discussion mentioning "commit-check" that also contains
+"bug", "crash", or "security" will be classified by AI and a draft issue
+created in the `commit-check` repository.
+
+!!! tip "GitHub Search Syntax"
+    `cross_repo_query` supports the full
+    [GitHub search syntax](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests).
+    You can use `OR`, `NOT`, `in:title`, `language:`, `label:`, etc.
+
+!!! note "Discussion search"
+    Cross-repo discussion search uses the GitHub GraphQL API, which is rate-limited
+    separately from the REST API. The default `max_results` is 30 discussions per scan.
 
 ## How It Works
 

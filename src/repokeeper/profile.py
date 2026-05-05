@@ -66,7 +66,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     },
     # ── Agent behavior ──
     "agent": {
-        "model": "deepseek-chat",     # deepseek-chat | deepseek-reasoner | gpt-4o
+        "model": "deepseek-chat",     # deepseek-chat | deepseek-reasoner | gpt-4o | gpt-4o-mini
         "implement": True,            # allow automatic implementation
         "max_context_files": 40,      # max files to include in LLM context
         "temperature": 0.1,           # LLM temperature for code generation
@@ -78,6 +78,8 @@ DEFAULT_PROFILE: dict[str, Any] = {
         "keywords": [],               # watchlist keywords e.g. ["bug", "crash", "security"]
         "confidence_threshold": 0.7,  # minimum AI confidence to act
         "auto_create_issue": False,   # auto-create issues (else draft for approval)
+        "cross_repo_search": False,   # search *all* of GitHub for mentions (not just this repo)
+        "cross_repo_query": "",       # custom search query; defaults to repo name
     },
     # ── Patrol ──
     "patrol": {
@@ -241,7 +243,7 @@ maintainer: your-github-username
 
 # ── Agent behavior ──
 # agent:
-#   model: deepseek-chat      # deepseek-chat | deepseek-reasoner | gpt-4o
+#   model: deepseek-chat      # deepseek-chat | deepseek-reasoner | gpt-4o | gpt-4o-mini
 #   implement: true           # allow automatic PR generation
 #   max_context_files: 40
 #   temperature: 0.1
@@ -262,6 +264,8 @@ maintainer: your-github-username
 #     - feature request
 #   confidence_threshold: 0.7
 #   auto_create_issue: false  # false = draft for review, true = auto-create
+#   cross_repo_search: false  # search *all* of GitHub for mentions of your project
+#   cross_repo_query: ""      # custom search query (defaults to repo name)
 
 # ── Daily Patrol ──
 # patrol:
@@ -289,7 +293,7 @@ def validate_profile(profile: dict) -> list[str]:
         issues.append("maintainer must be a non-empty string")
 
     # Validate agent model
-    valid_models = {"deepseek-chat", "deepseek-reasoner", "gpt-4o", "gpt-4-turbo"}
+    valid_models = {"deepseek-chat", "deepseek-reasoner", "gpt-4o", "gpt-4o-mini"}
     if profile.get("agent", {}).get("model") not in valid_models:
         issues.append(f"agent.model must be one of {valid_models}")
 

@@ -2,6 +2,19 @@
 
 All notable changes to RepoKeeper will be documented in this file.
 
+## [0.8.0] - 2026-05-06
+
+### Added
+- Add cross-repo global search capability to Community Radar.
+
+### Documentation
+- Updated example project name in Community Radar documentation.
+- Add RepoKeeper badge with professional styling to the README for better project visibility.
+
+### Test Coverage
+- Added edge case tests for `collect_repo_files` and `apply_and_push` functions
+  in the agent module (+146 lines).
+
 ## [0.7.0] - 2026-05-05
 
 ### Added

@@ -8,7 +8,8 @@
 [![codecov](https://codecov.io/gh/shenxianpeng/repokeeper/branch/main/graph/badge.svg)](https://codecov.io/gh/shenxianpeng/repokeeper)
 [![PyPI](https://img.shields.io/pypi/v/repokeeper.svg)](https://pypi.org/project/repokeeper/)
 [![Python](https://img.shields.io/pypi/pyversions/repokeeper.svg)](https://pypi.org/project/repokeeper/)
-[![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://shenxianpeng.github.io/repokeeper/)
+[![RepoKeeper](https://img.shields.io/badge/%F0%9F%A4%96-RepoKeeper-6e40c9)](https://github.com/shenxianpeng/repokeeper)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--ng-4051b5)](https://shenxianpeng.github.io/repokeeper/)
 
 **AI-powered open source maintainer agent. Reads issues, writes code, opens PRs — 24/7.**
 

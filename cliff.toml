@@ -27,10 +27,14 @@ split_commits = false
 commit_preprocessors = [
   # Normalize common non-conventional prefixes into conventional format.
   # Patterns are tried in order; only the first match is applied.
+  { pattern = "(?i)^security\\s+(.*)", replace = "security: $1" },
   { pattern = "(?i)^bugfix\\s+(.*)", replace = "fix: $1" },
   { pattern = "^Fix\\s+(.*)", replace = "fix: $1" },
+  { pattern = "^Deprecate\\s+(.*)", replace = "deprecated: $1" },
   { pattern = "^Add\\s+(.*)", replace = "feat: Add $1" },
-  { pattern = "^Remove\\s+(.*)", replace = "refactor: Remove $1" },
+  { pattern = "^Remove\\s+(.*)", replace = "removed: $1" },
+  { pattern = "^Delete\\s+(.*)", replace = "removed: $1" },
+  { pattern = "^Drop\\s+(.*)", replace = "removed: $1" },
   { pattern = "^Switch\\s+(.*)", replace = "refactor: Switch $1" },
   { pattern = "^Replace\\s+(.*)", replace = "refactor: Replace $1" },
   { pattern = "^Wire\\s+(.*)", replace = "feat: Wire $1" },
@@ -43,18 +47,20 @@ commit_preprocessors = [
   { pattern = "^Update\\s+(.*)", replace = "docs: Update $1" },
 ]
 commit_parsers = [
+  { message = "^security", group = "Security" },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },
+  { message = "^deprecated?", group = "Deprecated" },
+  { message = "^removed?", group = "Removed" },
   { message = "^refactor", group = "Changed" },
   { message = "^perf", group = "Changed" },
   { message = "^revert", group = "Changed" },
-  { message = "^docs?", group = "Documentation" },
-  { message = "^test", group = "Testing" },
-  { message = "^ci", group = "CI" },
-  { message = "^build", group = "Build" },
-  { message = "^chore", group = "Chores" },
-  { message = "^security", group = "Security" },
-  { message = ".*", group = "Other Changes" },
+  { message = "^docs?", group = "Changed" },
+  { message = "^test", group = "Changed" },
+  { message = "^ci", group = "Changed" },
+  { message = "^build", group = "Changed" },
+  { message = "^chore", group = "Changed" },
+  { message = ".*", group = "Changed" },
 ]
 filter_commits = false
 fail_on_unmatched_commit = false

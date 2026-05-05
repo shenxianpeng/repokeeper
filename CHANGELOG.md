@@ -2,6 +2,26 @@
 
 All notable changes to RepoKeeper will be documented in this file.
 
+## [0.7.0] - 2026-05-05
+
+### Added
+- **Radar auto-create issues.** When `auto_create_issue` is enabled, Community
+  Radar now automatically creates GitHub issues from community hits. Each
+  created issue links back to the original discussion, includes a hidden
+  deduplication marker, and carries professional RepoKeeper branding.
+- **Radar deduplication.** `_find_existing_radar_issue()` detects duplicates
+  by hidden marker or title similarity. When a duplicate is found, the existing
+  issue receives an activity comment instead of creating a redundant issue.
+- **Radar branding.** All auto-created issues carry a `repokeeper-radar` label,
+  a header citing the original author and source, and a branded footer linking
+  to the project — turning every issue into organic promotion.
+- Radar workflow template now includes `issues: write` permission for
+  auto-creation support.
+
+### Documentation
+- Updated Radar docs with auto-creation, deduplication, and branding sections.
+- Updated README Community Radar description to mention auto-create capability.
+
 ## [0.6.0] - 2026-05-05
 
 ### Added

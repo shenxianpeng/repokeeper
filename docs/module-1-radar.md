@@ -1,31 +1,34 @@
 # Module 1: Community Radar 🔭
 
-The Community Radar monitors GitHub issues for keywords you
+The Community Radar monitors GitHub issues and Discussions for keywords you
 specify. When it finds a match, it uses AI to classify the post (bug, feature
-request, question, or noise), generates a structured issue draft, and notifies
-you for approval.
+request, question, or noise). With `auto_create_issue` enabled, it automatically
+creates well-structured GitHub issues — complete with deduplication checks and
+professional RepoKeeper branding — so you can focus on reviewing and deciding,
+not on manual triage.
 
 !!! note "Current scope"
     The Community Radar scans both GitHub Issues and Discussions.
     Discussion scanning requires a token with ``discussions:read`` scope
-    and PyGithub >=2.1.
+    and PyGithub >=2.1.  Auto-creating issues requires ``issues: write``
+    permission in the workflow.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Community Radar                       │
-├───────────┬───────────┬───────────┬─────────────────────┤
-│  Scanner  │  AI       │  Filter   │  Notifier           │
-│           │  Classify │           │                     │
-│  GitHub   │  LLM      │  Remove   │  Email              │
-│  Issues   │  sorts    │  noise &  │  Telegram           │
-│  +        │  into:    │  low      │  WeChat             │
-│  Discus-  │  • bug    │  confi-   │  Work              │
-│  sions    │  • feat   │  dence    │                     │
-│           │  • q      │           │                     │
-│           │  • noise  │           │                     │
-└───────────┴───────────┴───────────┴─────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                       Community Radar                             │
+├───────────┬───────────┬───────────┬────────────┬─────────────────┤
+│  Scanner  │  AI       │  Filter   │  Create /  │  Notifier       │
+│           │  Classify │           │  Update    │                 │
+│  GitHub   │  LLM      │  Remove   │  Auto      │  Email          │
+│  Issues   │  sorts    │  noise &  │  create    │  Telegram       │
+│  +        │  into:    │  low      │  issues    │  WeChat         │
+│  Discus-  │  • bug    │  confi-   │  with      │  Work           │
+│  sions    │  • feat   │  dence    │  dedup +   │                 │
+│           │  • q      │           │  branding  │                 │
+│           │  • noise  │           │            │                 │
+└───────────┴───────────┴───────────┴────────────┴─────────────────┘
 ```
 
 ## Configuration
@@ -52,7 +55,7 @@ radar:
 | `enabled` | bool | `true` | Enable/disable the radar |
 | `keywords` | list | `[]` | Keywords to watch for (case-insensitive) |
 | `confidence_threshold` | float | `0.7` | Minimum AI confidence to act (0.0–1.0) |
-| `auto_create_issue` | bool | `false` | Auto-create issues (`true`) or draft for approval (`false`) |
+| `auto_create_issue` | bool | `false` | Auto-create issues (`true`) or draft for approval (`false`). When enabled, issues are created with the `repokeeper-radar` label, a header linking to the original discussion, and a branded footer. Requires `issues: write` workflow permission. |
 
 ## How It Works
 
@@ -131,9 +134,61 @@ notifications:
   urgent_only: false
 ```
 
+### 6. Auto-Creation & Deduplication
+
+When `auto_create_issue: true`, the Radar automatically creates a GitHub issue
+for each actionable hit.
+
+**Issue body structure:**
+
+```markdown
+> **Reported by @community_user** in [original discussion](URL)
+
+[AI-generated structured description with sections:
+ Description, Steps to Reproduce, Expected Behavior, Additional Context]
+
+<!-- repokeeper-radar:https://github.com/owner/repo/discussions/123 -->
+---
+<sub>🤖 Created by [RepoKeeper](https://.../repokeeper) — AI-powered open source maintenance. [Learn more](...)</sub>
+```
+
+**Deduplication** prevents duplicate issues. Before creating, the Radar checks
+for an existing issue by:
+
+1. **Hidden marker match** — each created issue contains `<!-- repokeeper-radar:SOURCE_URL -->`
+   in its body. The Radar searches existing `repokeeper-radar`-labeled issues
+   for this exact marker.
+
+2. **Title fallback** — if no marker matches, the Radar compares titles
+   (case-insensitive, trimmed).
+
+When a duplicate is found, the Radar adds a **comment** to the existing issue
+noting renewed activity, rather than creating a redundant issue.
+
+### 7. Branding
+
+Every auto-created issue carries professional RepoKeeper branding:
+
+| Element | Purpose |
+|---------|---------|
+| `repokeeper-radar` label | Identifies issues created by RepoKeeper; powers deduplication |
+| Header blockquote | Cites the original author and links to the source discussion |
+| Hidden marker | Enables reliable deduplication across scans |
+| Branded footer | Links to the RepoKeeper project — organic promotion with every issue |
+
 ## Workflow
 
-The radar GitHub Action runs every 3 hours on weekdays:
+The radar GitHub Action runs every 3 hours on weekdays.
+
+When you enable `auto_create_issue: true`, make sure the workflow has
+`issues: write` permission:
+
+```yaml
+permissions:
+  issues: write        # required for auto-create
+  discussions: read
+  contents: read
+```
 
 ```yaml
 on:
@@ -197,6 +252,29 @@ Generate a structured issue draft from a classified hit.
 
 Send notifications via configured channels.
 
+### `_create_radar_issue(gh_repo, hit, draft_body, labels) → dict`
+
+Create a GitHub issue from a Radar hit. Applies the `repokeeper-radar` label,
+wraps the body with header, hidden marker, and footer branding.
+
+### `_find_existing_radar_issue(gh_repo, source_url, title) → Issue | None`
+
+Find an existing issue for the same source URL. Matches by hidden marker first,
+then by title similarity. Returns the Issue object or `None`.
+
+### `_update_existing_radar_issue(issue_obj, hit) → dict`
+
+Add an activity comment to an existing issue instead of creating a duplicate.
+
+### `_build_radar_issue_body(draft_body, hit) → str`
+
+Wrap an AI-generated draft body with the standard RepoKeeper header,
+deduplication marker, and branded footer.
+
+### `_radar_marker(source_url) → str` / `_extract_source_url_from_marker(body) → str | None`
+
+Build and extract the hidden deduplication marker (``<!-- repokeeper-radar:URL -->``).
+
 ## Data Models
 
 ### `RadarHit`
@@ -235,6 +313,8 @@ class RadarReport:
     bugs: list[RadarHit]
     feature_requests: list[RadarHit]
     noise: list[RadarHit]         # discarded
+    issues_created: list[dict]     # {issue_number, issue_url, source_url}
+    issues_updated: list[dict]     # {issue_number, issue_url, source_url, action}
 ```
 
 ## Example Output
@@ -252,6 +332,7 @@ class RadarReport:
     [bug]     0.74 | "Race condition in concurrent requests"
     [feature] 0.72 | "Export to CSV format"
     [bug]     0.71 | "Token expiry not handled gracefully"
+  Created 5 new issues, updated 3 existing (duplicates)
   📧 Sent email to you@example.com
   📱 Sent Telegram alert
 ```

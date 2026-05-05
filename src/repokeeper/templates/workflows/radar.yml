@@ -9,7 +9,7 @@ jobs:
   radar:
     runs-on: ubuntu-latest
     permissions:
-      issues: read
+      issues: write
       discussions: read
       contents: read
     steps:

@@ -1579,3 +1579,55 @@ def test_version_package_not_found():
     finally:
         importlib.metadata.version = original_version
         importlib.reload(repokeeper)
+
+
+# ── run_agent dry_run ───────────────────────────────────────────────────────
+
+
+def test_run_agent_dry_run(monkeypatch):
+    """dry_run=True stops after LLM plan, returns plan dict, does not push."""
+    from repokeeper.agent import run_agent
+
+    # Mock GitHub
+    mock_repo = MagicMock()
+    mock_issue = MagicMock()
+    mock_issue.number = 1
+    mock_issue.title = "Test"
+    mock_issue.body = "body"
+    mock_issue.labels = []
+    mock_issue.get_comments.return_value = []
+    mock_repo.get_issue.return_value = mock_issue
+
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+
+    # Mock LLM
+    class PlanResponse:
+        content = '{"skip": false, "summary": "fix", "branch_name": "repokeeper/issue-1-test", "commit_message": "fix: test", "changes": {}, "new_files": {}}'
+        usage = TokenUsage(total_tokens=100, cost_usd=0.0001, model="test")
+
+    class MockLLM:
+        def chat(self, **kwargs):
+            return PlanResponse()
+
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("ISSUE_NUMBER", "1")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
+
+    # Prevent actual git ops
+    monkeypatch.setattr("repokeeper.agent.collect_repo_files", lambda **kw: {"a.py": "code"})
+    monkeypatch.setattr("repokeeper.agent.build_context_string", lambda f: "ctx")
+    monkeypatch.setattr("repokeeper.agent.Github", lambda token: mock_gh)
+    monkeypatch.setattr("repokeeper.agent.LLMClient", lambda **kw: MockLLM())
+    monkeypatch.setattr("repokeeper.agent.load_profile", lambda path: {"agent": {"implement": True}})
+
+    result = run_agent(dry_run=True)
+
+    assert result["skip"] is True
+    assert result["reason"] == "dry-run"
+    assert result["plan"]["summary"] == "fix"
+    assert result["plan"]["branch_name"] == "repokeeper/issue-1-test"
+    assert result["pr_url"] is None
+    # Verify we did NOT try to apply_and_push or create_pr
+    mock_issue.create_comment.assert_called()

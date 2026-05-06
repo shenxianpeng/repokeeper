@@ -505,8 +505,6 @@ def scan_dependencies(repo_path: Path = Path(".")) -> list[DepCheck]:
 
     return all_deps
 
-    return all_deps
-
 
 # ─── CI failure analysis ─────────────────────────────────────────────────────
 

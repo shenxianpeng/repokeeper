@@ -28,6 +28,7 @@ from .collaboration import (
 from .git_ops import safe_repo_path
 from .profile import load_profile
 
+from .llm_client import parse_llm_json
 from .logs import get_logger
 
 logger = get_logger("patrol")
@@ -670,11 +671,7 @@ def diagnose_ci_failure(
             max_tokens=500,
         )
 
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        result = json.loads(raw)
+        result = parse_llm_json(response.content)
 
         failure.diagnosis = result.get("diagnosis", "Unable to diagnose.")
         failure.suggested_fix = result.get("suggested_fix", "")
@@ -786,11 +783,7 @@ def summarize_stale_issue(
             max_tokens=300,
         )
 
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        result = json.loads(raw)
+        result = parse_llm_json(response.content)
 
         issue.summary = result.get("summary", f"Stale issue (#{issue.number}): {issue.title}")
         issue.suggested_action = result.get("suggested_action", "investigate")
@@ -1125,11 +1118,7 @@ def attempt_ci_auto_fix(
             max_tokens=4000,
         )
 
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        result = json.loads(raw)
+        result = parse_llm_json(response.content)
 
         if result.get("skip"):
             logger.info(

@@ -1,74 +1,33 @@
 # Security Policy
 
-RepoKeeper is designed to create reviewable pull requests, not to merge code
-without a maintainer. This document explains the default safety boundaries and
-how to report vulnerabilities.
+## Reporting a Vulnerability
+
+If you discover a security vulnerability in RepoKeeper, please report it
+privately via a [GitHub Security Advisory](https://github.com/shenxianpeng/repokeeper/security/advisories/new)
+or contact the maintainer directly.  **Do not open a public issue.**
+
+Vulnerabilities of particular concern include:
+
+- Accidental disclosure of API keys, tokens, or secrets in generated output
+- Escape of repository path constraints (writing files outside the repo)
+- Unsafe LLM output that could inject malicious code or commands
+- Token leakage through PR comments or logs
+- Trigger bypass (unauthorized users triggering the agent)
 
 ## Supported Versions
 
-Security fixes are handled on the `main` branch and released through the latest
-published package version.
+| Version | Supported          |
+| ------- | ------------------ |
+| 0.8.x   | :white_check_mark: |
+| < 0.8   | :x:                |
 
-## Reporting a Vulnerability
+Only the latest release receives security fixes.  Upgrade before reporting
+issues against older versions.
 
-Please report security issues privately by opening a GitHub security advisory
-for this repository when available, or by contacting the maintainer listed in
-the repository profile.
+## Security Model
 
-Do not open public issues for vulnerabilities that expose secrets, token
-handling weaknesses, command injection, privilege escalation, or unsafe
-automation behavior.
-
-## Automation Boundaries
-
-RepoKeeper runs inside GitHub Actions and uses the permissions granted by the
-workflow. The default Implementation Agent workflow is intentionally limited to
-creating branches, commenting on issues, and opening pull requests.
-
-By default:
-
-- RepoKeeper does not auto-merge generated pull requests.
-- Human review remains required before generated changes are merged.
-- Workflow file edits under `.github/workflows/` are blocked by the agent.
-- Only repository collaborators can trigger the comment-based agent workflow.
-- Label-based execution should be limited to trusted users who can apply labels.
-- Verification commands run before a pull request is opened when configured or
-  discovered.
-
-## Token Guidance
-
-Use the least privileged token that can complete the workflow:
-
-- Prefer the default `GITHUB_TOKEN` when repository Actions settings allow it to
-  create pull requests.
-- Use `REPOKEEPER_GITHUB_TOKEN` only when a personal access token is required by
-  your repository or organization policy.
-- Do not grant administration permissions to the token.
-- Store LLM and GitHub credentials only as GitHub Actions secrets.
-
-## Recommended Settings
-
-For sensitive repositories, start with conservative settings in
-`repokeeper.yml`:
-
-```yaml
-agent:
-  implement: true
-  max_context_files: 20
-  verify_commands:
-    - ruff check .
-    - pytest tests
-
-pr:
-  max_files_per_pr: 8
-  review_required: true
-  auto_merge: false
-```
-
-Disable autonomous implementation entirely with:
-
-```yaml
-agent:
-  implement: false
-```
-
+RepoKeeper automates maintenance by opening **reviewable pull requests** —
+it never auto-merges, never modifies `.github/workflows/`, and restricts
+trigger access to repository collaborators.  See the [full security
+documentation](https://shenxianpeng.github.io/repokeeper/security/) for
+details on permissions, tokens, trigger control, and repository guardrails.

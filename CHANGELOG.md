@@ -2,6 +2,46 @@
 
 All notable changes to RepoKeeper will be documented in this file.
 
+## [0.9.0] - 2026-05-06
+
+### Added
+- **Agent candidate handoff workflow.** A new `collaboration.py` module enables
+  seamless handoff between RepoKeeper modules. Radar and Patrol can now
+  nominate candidates for the Implementation Agent to act on, closing the
+  loop from discovery to fix.
+- **Agent `--dry-run` mode.** When `--dry-run` is passed, the Implementation
+  Agent stops after generating the plan, posts a summary comment on the issue,
+  and returns the plan dict without applying changes or creating a PR.
+- **Remote repository checks in `doctor`.** `repokeeper doctor` now verifies
+  that the GitHub token can reach the target repository and checks whether
+  Discussions are enabled (critical for Radar's discussion scanning).
+- **Structured exception hierarchy.** New `repokeeper.exceptions` module with
+  `RepoKeeperError` (base), `AuthError`, `ConfigError`, `LLMParseError`,
+  `PermissionDeniedError`, `GitOperationError`, and `VerificationError`.
+- **Root-level `SECURITY.md`.** Vulnerability reporting instructions, supported
+  versions table, and safety model summary. Automatically surfaced by GitHub.
+
+### Changed
+- **Unified LLM JSON parsing.** `parse_llm_json` moved from agent.py to
+  `llm_client.py` as a shared public function with truncated JSON repair.
+  All ad-hoc parsing in radar.py and patrol.py now uses it consistently.
+- **CI auto-fix uses `git_ops.git()`.** Replaced raw `subprocess.run` calls
+  with the shared `git()` helper, gaining safe-repo-path validation.
+- **Exception types refined.** Replaced bare `RuntimeError` / `ValueError` /
+  `SystemExit` throughout the codebase with semantic exception types.
+- `git_ops.git()` now accepts an explicit `cwd` parameter.
+
+### Fixed
+- Removed dead duplicate return statement in `scan_dependencies`.
+- Logging now auto-initializes via `get_logger()` from all entry points
+  (radar, patrol, CLI), ensuring consistent formatting everywhere.
+- Stale issue candidate publish failures are now captured and reported in
+  patrol warnings instead of being silently discarded.
+
+### Test Coverage
+- Coverage gate raised, with new tests for dry-run mode, remote checks,
+  exception paths, `parse_llm_json` edge cases, and stale publish failures.
+
 ## [0.8.0] - 2026-05-06
 
 ### Added

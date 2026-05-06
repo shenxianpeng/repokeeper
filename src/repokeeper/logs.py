@@ -47,13 +47,28 @@ def setup_logging(level: int | str = "INFO") -> None:
     logger.propagate = False
 
 
+_logging_initialized: bool = False
+
+
+def _ensure_logging() -> None:
+    """Lazily call :func:`setup_logging` once per process."""
+    global _logging_initialized
+    if not _logging_initialized:
+        setup_logging()
+        _logging_initialized = True
+
+
 def get_logger(name: str) -> logging.Logger:
     """Get a child logger under the ``repokeeper`` namespace.
 
+    Automatically configures logging on first use if it has not been
+    explicitly set up.
+
     Args:
-        name: Logger name, e.g. ``"repokeeper.agent"``.
+        name: Logger name, e.g. ``"agent"`` (the ``"repokeeper."`` prefix is added automatically).
 
     Returns:
         A configured :class:`logging.Logger`.
     """
+    _ensure_logging()
     return logging.getLogger(f"repokeeper.{name}")

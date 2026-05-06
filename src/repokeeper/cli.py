@@ -338,6 +338,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from repokeeper.logs import setup_logging
+
+    setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)  # type: ignore[no-any-return]

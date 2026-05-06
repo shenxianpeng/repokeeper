@@ -11,7 +11,6 @@ Daily repository health checks:
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -29,7 +28,9 @@ from .collaboration import (
 from .git_ops import safe_repo_path
 from .profile import load_profile
 
-logger = logging.getLogger(__name__)
+from .logs import get_logger
+
+logger = get_logger("patrol")
 
 
 # ─── Data models ─────────────────────────────────────────────────────────────

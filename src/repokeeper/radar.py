@@ -11,7 +11,6 @@ for maintainer approval (email / Telegram / WeChat).
 from __future__ import annotations
 
 import json
-import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,9 +23,10 @@ from .collaboration import (
     ensure_github_labels,
     format_candidate_block,
 )
+from .logs import get_logger
 from .profile import load_profile
 
-logger = logging.getLogger(__name__)
+logger = get_logger("radar")
 
 
 # ─── Data models ─────────────────────────────────────────────────────────────

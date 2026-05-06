@@ -213,6 +213,18 @@ for each actionable hit.
 ```markdown
 > **Reported by @community_user** in [original discussion](URL)
 
+## RepoKeeper Candidate
+
+- **Source module:** Radar
+- **Recommended action:** implement
+- **Confidence:** 0.92
+- **Original source:** URL
+- **Diagnosis summary:** User reports a reproducible crash.
+- **Suggested acceptance criteria:** Maintainer confirms this is actionable.
+
+Maintainer approval required: add `agent-todo` or comment `@repokeeper go`
+to request implementation.
+
 [AI-generated structured description with sections:
  Description, Steps to Reproduce, Expected Behavior, Additional Context]
 
@@ -240,8 +252,11 @@ Every auto-created issue carries professional RepoKeeper branding:
 
 | Element | Purpose |
 |---------|---------|
+| `repokeeper-candidate` label | Marks the issue as waiting for maintainer approval |
 | `repokeeper-radar` label | Identifies issues created by RepoKeeper; powers deduplication |
+| No `agent-todo` label | Prevents Radar from triggering automatic implementation |
 | Header blockquote | Cites the original author and links to the source discussion |
+| Candidate block | Records source module, recommended action, confidence, source, and acceptance criteria |
 | Hidden marker | Enables reliable deduplication across scans |
 | Branded footer | Links to the RepoKeeper project — organic promotion with every issue |
 

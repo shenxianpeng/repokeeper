@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from repokeeper.collaboration import AGENT_TODO_LABEL, CANDIDATE_LABEL
 from repokeeper.radar import (
     RADAR_LABEL,
     RadarHit,
@@ -611,6 +612,8 @@ def test_generate_radar_summary_with_bugs_and_features():
     assert "Crash bug" in summary
     assert "💡 Feature Requests" in summary
     assert "Dark mode" in summary
+    assert "Waiting for Maintainer Approval" in summary
+    assert "agent-todo" in summary
 
 
 def test_generate_radar_summary_empty():
@@ -837,6 +840,11 @@ def test_create_radar_issue_creates_with_labels():
     assert title == "Fix crash on startup"
     assert _radar_marker(hit.url) in body
     assert "Created by [RepoKeeper]" in body
+    assert "RepoKeeper Candidate" in body
+    labels = kwargs.get("labels", [])
+    assert CANDIDATE_LABEL in labels
+    assert RADAR_LABEL in labels
+    assert AGENT_TODO_LABEL not in labels
 
 
 def test_create_radar_issue_raises_on_failure():

@@ -27,6 +27,11 @@ Comment `@repokeeper go` on an issue (must be a repo collaborator):
 The agent responds immediately with an acknowledgment comment and begins
 working.
 
+RepoKeeper discovery modules may add `repokeeper-candidate`,
+`repokeeper-radar`, or `repokeeper-patrol` labels to issues. Those labels are
+handoff context only; they do not trigger implementation. A maintainer must
+still add `agent-todo` or comment `@repokeeper go`.
+
 ## Architecture
 
 ```

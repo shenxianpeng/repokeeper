@@ -10,14 +10,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from repokeeper import agent
-from repokeeper.exceptions import (
-    ConfigError,
-    GitOperationError,
-    LLMParseError,
-    PermissionDeniedError,
-    VerificationError,
-)
-from repokeeper.llm_client import parse_llm_json
 from repokeeper.agent import (
     apply_and_push,
     build_context_string,
@@ -33,8 +25,16 @@ from repokeeper.agent import (
     strip_blocked_paths,
     validate_implementation,
 )
+from repokeeper.exceptions import (
+    ConfigError,
+    GitOperationError,
+    LLMParseError,
+    PermissionDeniedError,
+    VerificationError,
+)
 from repokeeper.git_ops import safe_repo_path
-from repokeeper.llm_client import TokenUsage
+from repokeeper.llm_client import TokenUsage, parse_llm_json
+from repokeeper.llm_client import _repair_truncated_json as repair_truncated_json
 
 # ── Module imports ────────────────────────────────────────────────────────────
 

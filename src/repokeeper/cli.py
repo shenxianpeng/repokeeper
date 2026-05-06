@@ -207,12 +207,17 @@ def _run_remote_checks(token: str, repo_slug: str, failed: int, warnings: int) -
                 warnings += 1
 
         elif resp.status_code == 404:
-            _print_check(False, f"Token can access {repo_slug}", f"404 — repo not found or token lacks access")
+            _print_check(False, f"Token can access {repo_slug}", "404 — repo not found or token lacks access")
             failed += 1
             _print_fix("verify the repository slug is correct and the token has repo scope")
         elif resp.status_code == 401:
-            _print_check(False, f"Token can access {repo_slug}", "401 — token is invalid or expired")
-            failed += 1
+            _print_check(
+                False,
+                f"Token can access {repo_slug}",
+                "401 — token is invalid or expired",
+                status_if_false="warn",
+            )
+            warnings += 1
             _print_fix("regenerate the token in GitHub Settings → Developer settings → Personal access tokens")
         else:
             _print_check(

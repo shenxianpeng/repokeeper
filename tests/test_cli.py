@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from repokeeper import cli
-from repokeeper.exceptions import ConfigError
+from repokeeper.exceptions import AuthError, ConfigError
 
 
 def test_cli_help_exits_success(capsys):
@@ -250,7 +250,8 @@ def test_doctor_success(tmp_path, monkeypatch, capsys):
     exit_code = cli.main(["doctor", str(tmp_path), "--repo", "owner/repo"])
 
     assert exit_code == 0
-    assert "Doctor found no local setup issues" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Doctor found no blocking issues" in out
 
 
 def test_doctor_reports_incomplete_workflow(tmp_path, monkeypatch, capsys):
@@ -275,7 +276,7 @@ def test_cmd_radar_missing_token(tmp_path, monkeypatch):
     """radar fails with clear message when GITHUB_TOKEN missing."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("REPOKEEPER_GITHUB_TOKEN", raising=False)
-    with pytest.raises(SystemExit, match="Missing GitHub token"):
+    with pytest.raises(AuthError, match="Missing GitHub token"):
         cli.main(["radar", "--repo", "owner/repo"])
 
 

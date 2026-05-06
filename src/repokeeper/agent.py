@@ -20,12 +20,12 @@ from typing import Any
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
 
+from repokeeper.exceptions import ConfigError, LLMParseError, PermissionDeniedError
 from repokeeper.git_ops import (
     BLOCKED_PREFIXES,  # noqa: F401  # re-export
     apply_and_push,  # noqa: F401  # re-export
 )
 from repokeeper.git_ops import git as _git  # noqa: F401  # re-export
-from repokeeper.exceptions import ConfigError, LLMParseError, PermissionDeniedError
 from repokeeper.llm_client import LLMClient, TokenUsage, parse_llm_json
 from repokeeper.logs import get_logger
 from repokeeper.profile import load_profile
@@ -283,7 +283,7 @@ def call_llm(
 
         try:
             return parse_llm_json(raw), total_usage
-        except ValueError as err:
+        except (ValueError, LLMParseError) as err:
             if attempt < max_retries:
                 logger.warning(
                     "JSON parse failed (attempt %d), retrying...", attempt + 1,

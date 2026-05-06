@@ -27,8 +27,8 @@ from .collaboration import (
 )
 from .git_ops import git, safe_repo_path
 from .llm_client import parse_llm_json
-from .profile import load_profile
 from .logs import get_logger
+from .profile import load_profile
 
 logger = get_logger("patrol")
 

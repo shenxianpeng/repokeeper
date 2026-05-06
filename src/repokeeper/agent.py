@@ -370,6 +370,95 @@ Closes #{issue_data['number']}
     return str(pr.html_url)
 
 
+# ─── Pi agent integration ────────────────────────────────────────────────────
+
+
+def _run_pi_agent(
+    issue_data: dict[str, Any],
+    context_str: str,
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    """Delegate implementation to the pi code agent (pi-mono).
+
+    Pi is a lightweight code agent that reads the codebase and issue
+    description, then generates an implementation plan as structured JSON.
+
+    Args:
+        issue_data: Structured issue data.
+        context_str: Repository source context string.
+        profile: Maintainer profile dict.
+
+    Returns:
+        Implementation plan dict with keys: skip, reason, summary,
+        branch_name, commit_message, changes, new_files.
+
+    Raises:
+        ConfigError: If pi is not installed or fails to run.
+    """
+    import subprocess
+    import tempfile
+
+    # Build the prompt for pi
+    style_config = profile.get("style", {})
+    code_style = style_config.get("code_style", "follow existing patterns")
+    tech_config = profile.get("tech", {})
+    preferred = tech_config.get("preferred", [])
+    avoided = tech_config.get("avoid", [])
+
+    tech_note = ""
+    if preferred:
+        tech_note += f"\n- Preferred tech stack: {', '.join(preferred)}"
+    if avoided:
+        tech_note += f"\n- Tech stack to avoid: {', '.join(avoided)}"
+
+    user_prompt = f"""\
+## Issue #{issue_data['number']}: {issue_data['title']}
+
+{issue_data['body']}
+
+## Recent discussion
+{json.dumps(issue_data['comments'], indent=2)}
+
+## Maintainer style preference
+{code_style}
+{tech_note}
+
+## Repository source files
+{context_str}
+"""
+
+    # Write the prompt to a temp file for pi to read
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+        f.write(user_prompt)
+        prompt_path = f.name
+
+    try:
+        # Call pi with the prompt file
+        result = subprocess.run(
+            ["pi", "--prompt", prompt_path, "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise ConfigError(
+                f"Pi agent exited with code {result.returncode}: {result.stderr}"
+            )
+        raw = result.stdout.strip()
+        if not raw:
+            raise ConfigError("Pi agent returned empty output")
+        return parse_llm_json(raw)
+    except FileNotFoundError:
+        raise ConfigError(
+            "Pi agent (pi) not found. Install it from https://github.com/badlogic/pi-mono "
+            "or set agent.backend to 'llm' (default)."
+        )
+    except subprocess.TimeoutExpired:
+        raise ConfigError("Pi agent timed out after 120 seconds")
+    finally:
+        os.unlink(prompt_path)
+
+
 # ─── Main entry point ────────────────────────────────────────────────────────
 
 
@@ -464,10 +553,18 @@ def run_agent(
         logger.info("Loaded %d files", len(files))
         context_str = build_context_string(files)
 
-        # Call LLM
-        model = profile.get("agent", {}).get("model", "deepseek-chat")
-        logger.info("Calling LLM (%s)...", model)
-        result, usage = call_llm(issue_data, context_str, profile, llm)
+        # Determine backend: pi or llm
+        backend = profile.get("agent", {}).get("backend", "llm")
+
+        if backend == "pi":
+            logger.info("Using pi agent backend...")
+            result = _run_pi_agent(issue_data, context_str, profile)
+            usage = TokenUsage(model="pi")
+        else:
+            # Call LLM
+            model = profile.get("agent", {}).get("model", "deepseek-chat")
+            logger.info("Calling LLM (%s)...", model)
+            result, usage = call_llm(issue_data, context_str, profile, llm)
 
         # Log token usage
         if usage.total_tokens > 0:

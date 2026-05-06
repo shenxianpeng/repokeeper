@@ -1269,15 +1269,17 @@ def test_attempt_ci_auto_fix_creates_pr(tmp_path, monkeypatch):
         log_snippet="log",
     )
 
-    # Override subprocess.run globally for the push to succeed
-    original_run = sp.run
+    # Override subprocess.run in git_ops for the push to succeed
+    import repokeeper.git_ops
+
+    original_run_gitops = repokeeper.git_ops.subprocess.run
     push_called = []
     def mock_push(*args, **kwargs):
         if len(args) >= 1 and isinstance(args[0], list) and args[0][:2] == ["git", "push"]:
             push_called.append(True)
             return sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        return original_run(*args, **kwargs)
-    monkeypatch.setattr(sp, "run", mock_push)
+        return original_run_gitops(*args, **kwargs)
+    monkeypatch.setattr(repokeeper.git_ops.subprocess, "run", mock_push)
 
     result = attempt_ci_auto_fix(
         failure, mock_llm, mock_gh, "owner/repo",

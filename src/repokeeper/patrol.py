@@ -1324,7 +1324,11 @@ def run_patrol(
     for issue in stale:
         summarize_stale_issue(issue, llm_client, model=model)
         if issue.suggested_action == "implement" and gh_client is not None:
-            publish_stale_issue_candidate(gh_client, repo, issue)
+            published = publish_stale_issue_candidate(gh_client, repo, issue)
+            if not published:
+                report.warnings.append(
+                    f"Failed to publish Patrol candidate for stale issue #{issue.number}"
+                )
     report.stale_issues = stale
     if stale:
         logger.info(f"  Found {len(stale)} stale issues")

@@ -1328,6 +1328,32 @@ def test_repair_truncated_json_nested_mixed_unclosed():
     assert json.loads(result) == {"outer": {"inner": [1, 2]}}
 
 
+def test_parse_llm_json_fence_without_closing_backticks():
+    """Text starts with ``` but has no closing ```."""
+    # The fence detection finds the outer ``` and falls through
+    result = parse_llm_json('```\n{"a": 1}')
+    assert result == {"a": 1}
+
+
+def test_parse_llm_json_fence_with_extra_text_after():
+    """JSON inside fences with trailing text outside."""
+    raw = '```json\n{"skip": false}\n```\nsome explanation'
+    result = parse_llm_json(raw)
+    assert result == {"skip": False}
+
+
+def test_parse_llm_json_outer_extraction_with_junk_before():
+    """Extracts JSON object when text has junk before the opening brace."""
+    result = parse_llm_json('junk text {"key": "value"}')
+    assert result == {"key": "value"}
+
+
+def test_parse_llm_json_first_error_captured():
+    """The original JSONDecodeError message appears in the LLMParseError."""
+    with pytest.raises(LLMParseError, match="Expecting value"):
+        parse_llm_json("not json at all")
+
+
 # ── call_llm retry: non-skip path ───────────────────────────────────────────
 
 def test_call_llm_retry_succeeds_with_changes():

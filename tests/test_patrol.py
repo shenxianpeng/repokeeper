@@ -992,6 +992,37 @@ def test_run_patrol_publishes_implement_stale_issue_candidate(monkeypatch):
     assert published == [stale_issue]
 
 
+def test_run_patrol_stale_publish_failure_adds_warning(monkeypatch):
+    """When publish_stale_issue_candidate returns False, a warning is added."""
+    stale_issue = StaleIssue(
+        number=10, title="Old bug", url="https://ex.test/issues/10",
+        author="bob", created_at=datetime(2025, 1, 1),
+        last_updated=datetime(2025, 1, 1), days_stale=100,
+    )
+    monkeypatch.setattr("repokeeper.patrol.scan_dependencies", lambda *a, **kw: [])
+    monkeypatch.setattr("repokeeper.patrol.scan_ci_failures", lambda *a, **kw: [])
+    monkeypatch.setattr("repokeeper.patrol.scan_stale_issues", lambda *a, **kw: [stale_issue])
+
+    def fake_summarize(issue, *args, **kwargs):
+        issue.summary = "Stale."
+        issue.suggested_action = "implement"
+        return issue
+
+    monkeypatch.setattr("repokeeper.patrol.summarize_stale_issue", fake_summarize)
+    monkeypatch.setattr(
+        "repokeeper.patrol.publish_stale_issue_candidate",
+        lambda gh, repo, issue: False,
+    )
+
+    report = run_patrol(
+        MagicMock(), MagicMock(), "owner/repo",
+        profile={"patrol": {"enabled": True, "stale_days": 90, "ci_auto_fix": False}},
+    )
+
+    assert len(report.warnings) >= 1
+    assert any("Failed to publish Patrol candidate" in w for w in report.warnings)
+
+
 # ── create_dependency_upgrade_pr ──────────────────────────────────────────────
 
 

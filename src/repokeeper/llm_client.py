@@ -14,6 +14,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from repokeeper.exceptions import AuthError, LLMParseError
 from repokeeper.logs import get_logger
 
 logger = get_logger("llm")
@@ -360,7 +361,7 @@ class LLMClient:
         base_url = base_url or os.environ.get("LLM_BASE_URL")
 
         if not api_key:
-            raise ValueError("No LLM API key found. Set DEEPSEEK_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.")
+            raise AuthError("No LLM API key found. Set DEEPSEEK_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.")
 
         # Auto-detect provider
         if provider == "auto":
@@ -431,3 +432,122 @@ class LLMClient:
         and ``LLM_BASE_URL``.
         """
         return LLMClient()
+
+
+# ─── Shared JSON parsing ────────────────────────────────────────────────────
+
+
+def _repair_truncated_json(text: str) -> str | None:
+    """Attempt to repair a truncated/incomplete JSON string.
+
+    Tries to find the last complete key-value pair and close the object.
+
+    Args:
+        text: Possibly truncated JSON string.
+
+    Returns:
+        Repaired string or ``None`` if repair is not possible.
+    """
+    bracket_stack: list[str] = []
+    in_string = False
+    escape_next = False
+
+    for ch in text:
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            bracket_stack.append(ch)
+        elif ch == "}":
+            if bracket_stack and bracket_stack[-1] == "{":
+                bracket_stack.pop()
+        elif ch == "]":
+            if bracket_stack and bracket_stack[-1] == "[":
+                bracket_stack.pop()
+
+    if not bracket_stack and not in_string:
+        return None
+
+    repaired = text.rstrip()
+    if in_string:
+        repaired += '"'
+
+    for open_ch in reversed(bracket_stack):
+        if open_ch == "{":
+            repaired += "}"
+        elif open_ch == "[":
+            repaired += "]"
+
+    return repaired if repaired != text else None
+
+
+def parse_llm_json(raw: str) -> dict[str, Any]:
+    """Parse LLM JSON output with resilience to common formatting issues.
+
+    Handles markdown fences, code block markers, and attempts basic repair
+    for unterminated strings.  Designed to be the single shared parser for
+    all RepoKeeper modules that consume JSON from an LLM response.
+
+    Args:
+        raw: Raw text content from LLM response.
+
+    Returns:
+        Parsed JSON dict.
+
+    Raises:
+        LLMParseError: If the response could not be parsed as JSON.
+    """
+    import json as _json
+    import re as _re
+
+    text = raw.strip()
+
+    # ── Strip markdown code fences ──
+    fence_pattern = r"```(?:json)?\s*\n(.*?)\n```"
+    m = _re.search(fence_pattern, text, _re.DOTALL)
+    if m:
+        text = m.group(1).strip()
+    elif text.startswith("```"):
+        inner = text.split("```", 2)
+        if len(inner) >= 2:
+            candidate = inner[1]
+            if candidate.startswith("json"):
+                candidate = candidate[4:]
+            text = candidate.strip()
+
+    # ── Try direct parse ──
+    try:
+        return _json.loads(text)  # type: ignore[no-any-return]
+    except _json.JSONDecodeError as err:
+        first_error = err
+
+    # ── Try extracting the outermost JSON object ──
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        extracted = text[start : end + 1]
+        try:
+            return _json.loads(extracted)  # type: ignore[no-any-return]
+        except _json.JSONDecodeError:
+            pass
+
+    # ── Try fixing common unterminated string ──
+    repaired = _repair_truncated_json(text)
+    if repaired is not None:
+        try:
+            return _json.loads(repaired)  # type: ignore[no-any-return]
+        except _json.JSONDecodeError:
+            pass
+
+    raise LLMParseError(
+        f"Failed to parse LLM JSON response. First error: {first_error}\n"
+        f"Raw response (last 2000 chars): ...{text[-2000:]}"
+    )

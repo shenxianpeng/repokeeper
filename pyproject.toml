@@ -78,6 +78,7 @@ source = ["repokeeper"]
 [tool.coverage.report]
 fail_under = 80
 show_missing = true
+skip_empty = true
 
 [tool.ruff]
 line-length = 100

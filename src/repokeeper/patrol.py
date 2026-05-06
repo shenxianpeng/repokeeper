@@ -11,7 +11,6 @@ Daily repository health checks:
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -26,10 +25,12 @@ from .collaboration import (
     ensure_github_labels,
     format_candidate_block,
 )
-from .git_ops import safe_repo_path
+from .git_ops import git, safe_repo_path
+from .llm_client import parse_llm_json
+from .logs import get_logger
 from .profile import load_profile
 
-logger = logging.getLogger(__name__)
+logger = get_logger("patrol")
 
 
 # ─── Data models ─────────────────────────────────────────────────────────────
@@ -505,8 +506,6 @@ def scan_dependencies(repo_path: Path = Path(".")) -> list[DepCheck]:
 
     return all_deps
 
-    return all_deps
-
 
 # ─── CI failure analysis ─────────────────────────────────────────────────────
 
@@ -671,11 +670,7 @@ def diagnose_ci_failure(
             max_tokens=500,
         )
 
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        result = json.loads(raw)
+        result = parse_llm_json(response.content)
 
         failure.diagnosis = result.get("diagnosis", "Unable to diagnose.")
         failure.suggested_fix = result.get("suggested_fix", "")
@@ -787,11 +782,7 @@ def summarize_stale_issue(
             max_tokens=300,
         )
 
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        result = json.loads(raw)
+        result = parse_llm_json(response.content)
 
         issue.summary = result.get("summary", f"Stale issue (#{issue.number}): {issue.title}")
         issue.suggested_action = result.get("suggested_action", "investigate")
@@ -1126,11 +1117,7 @@ def attempt_ci_auto_fix(
             max_tokens=4000,
         )
 
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        result = json.loads(raw)
+        result = parse_llm_json(response.content)
 
         if result.get("skip"):
             logger.info(
@@ -1147,14 +1134,11 @@ def attempt_ci_auto_fix(
         branch_name = f"repokeeper/ci-fix-{failure.run_id}"
         gh_repo = gh_client.get_repo(repo)
 
-        import subprocess as _sp
-
-        _sp.run(["git", "config", "user.email", "repokeeper[bot]@users.noreply.github.com"],
-                check=False, capture_output=True, cwd=repo_path)
-        _sp.run(["git", "config", "user.name", "repokeeper[bot]"],
-                check=False, capture_output=True, cwd=repo_path)
-        _sp.run(["git", "checkout", "-b", branch_name],
-                check=False, capture_output=True, cwd=repo_path)
+        git("config", "user.email", "repokeeper[bot]@users.noreply.github.com",
+            check=False, capture=True, cwd=repo_path)
+        git("config", "user.name", "repokeeper[bot]",
+            check=False, capture=True, cwd=repo_path)
+        git("checkout", "-b", branch_name, check=False, capture=True, cwd=repo_path)
 
         for filepath, content in changes.items():
             try:
@@ -1165,36 +1149,30 @@ def attempt_ci_auto_fix(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-        _sp.run(["git", "add", "-A"], check=False, capture_output=True, cwd=repo_path)
-        diff_result = _sp.run(
-            ["git", "diff", "--cached", "--name-only"],
-            check=False, capture_output=True, text=True, cwd=repo_path,
-        )
+        git("add", "-A", check=False, capture=True, cwd=repo_path)
+        diff_result = git("diff", "--cached", "--name-only", capture=True, cwd=repo_path)
         if not diff_result.stdout.strip():
             logger.warning("CI auto-fix produced no safe file changes")
             return None
 
-        _sp.run(
-            ["git", "commit", "-m", result.get("commit_message", "ci: auto-fix")],
-            check=False, capture_output=True, cwd=repo_path,
+        git(
+            "commit", "-m", result.get("commit_message", "ci: auto-fix"),
+            check=False, capture=True, cwd=repo_path,
         )
 
         # Push the branch
-        owner, _name = repo.split("/")
         gh_token = _get_gh_token_from_client(gh_client)
         if gh_token:
             remote_url = f"https://x-access-token:{gh_token}@github.com/{repo}.git"
-            _sp.run(["git", "remote", "set-url", "origin", remote_url],
-                    check=False, capture_output=True, cwd=repo_path)
+            git("remote", "set-url", "origin", remote_url, check=False, capture=True, cwd=repo_path)
 
-        push_result = _sp.run(
-            ["git", "push", "origin", branch_name],
-            check=False, capture_output=True, text=True, cwd=repo_path,
-        )
+        push_result = git("push", "origin", branch_name, check=False, capture=True, cwd=repo_path)
         if push_result.returncode != 0:
-            logger.warning(f"CI auto-fix push failed: {push_result.stderr[:200]}")
-            _sp.run(["git", "checkout", gh_repo.default_branch],
-                    check=False, capture_output=True, cwd=repo_path)
+            logger.warning(
+                "CI auto-fix push failed: %s",
+                (push_result.stderr or "")[:200],
+            )
+            git("checkout", gh_repo.default_branch, check=False, capture=True, cwd=repo_path)
             return None
 
         # Create PR
@@ -1223,8 +1201,7 @@ Repokeeper Patrol diagnosed and attempted to fix a CI failure.
         )
 
         # Return to default branch
-        _sp.run(["git", "checkout", gh_repo.default_branch],
-                check=False, capture_output=True, cwd=repo_path)
+        git("checkout", gh_repo.default_branch, check=False, capture=True, cwd=repo_path)
 
         return f"Fixed {failure.workflow_name}: {pr.html_url}"
 
@@ -1325,7 +1302,11 @@ def run_patrol(
     for issue in stale:
         summarize_stale_issue(issue, llm_client, model=model)
         if issue.suggested_action == "implement" and gh_client is not None:
-            publish_stale_issue_candidate(gh_client, repo, issue)
+            published = publish_stale_issue_candidate(gh_client, repo, issue)
+            if not published:
+                report.warnings.append(
+                    f"Failed to publish Patrol candidate for stale issue #{issue.number}"
+                )
     report.stale_issues = stale
     if stale:
         logger.info(f"  Found {len(stale)} stale issues")

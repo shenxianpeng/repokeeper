@@ -10,8 +10,6 @@ for maintainer approval (email / Telegram / WeChat).
 
 from __future__ import annotations
 
-import json
-import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,9 +22,11 @@ from .collaboration import (
     ensure_github_labels,
     format_candidate_block,
 )
+from .llm_client import parse_llm_json
+from .logs import get_logger
 from .profile import load_profile
 
-logger = logging.getLogger(__name__)
+logger = get_logger("radar")
 
 
 # ─── Data models ─────────────────────────────────────────────────────────────
@@ -496,12 +496,7 @@ Classify this post. Respond with JSON only.
             max_tokens=500,
         )
 
-        raw = response.content.strip()
-        # Strip markdown fences if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        result = json.loads(raw)
+        result = parse_llm_json(response.content)
 
         hit.category = result.get("category", "noise")
         hit.confidence = float(result.get("confidence", 0))
@@ -609,11 +604,7 @@ Follow that with a blank line, then the structured issue description.
             max_tokens=1500,
         )
 
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            raw = raw.rsplit("```", 1)[0]
-        return json.loads(raw)  # type: ignore[no-any-return]
+        return parse_llm_json(response.content)  # type: ignore[no-any-return]
 
     except Exception as e:
         logger.error(f"Draft generation failed: {e}")

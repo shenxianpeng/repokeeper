@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from repokeeper import cli
+from repokeeper.exceptions import AuthError, ConfigError
 
 
 def test_cli_help_exits_success(capsys):
@@ -249,7 +250,8 @@ def test_doctor_success(tmp_path, monkeypatch, capsys):
     exit_code = cli.main(["doctor", str(tmp_path), "--repo", "owner/repo"])
 
     assert exit_code == 0
-    assert "Doctor found no local setup issues" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Doctor found no blocking issues" in out
 
 
 def test_doctor_reports_incomplete_workflow(tmp_path, monkeypatch, capsys):
@@ -274,14 +276,145 @@ def test_cmd_radar_missing_token(tmp_path, monkeypatch):
     """radar fails with clear message when GITHUB_TOKEN missing."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("REPOKEEPER_GITHUB_TOKEN", raising=False)
-    with pytest.raises(SystemExit, match="Missing GitHub token"):
+    with pytest.raises(AuthError, match="Missing GitHub token"):
         cli.main(["radar", "--repo", "owner/repo"])
 
 
 def test_cmd_agent_missing_llm_key(tmp_path, monkeypatch):
-    """agent command raises RuntimeError when LLM key is missing."""
+    """agent command raises ConfigError when LLM key is missing."""
     monkeypatch.setenv("GITHUB_TOKEN", "tk")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY or OPENAI_API_KEY"):
+    with pytest.raises(ConfigError, match="DEEPSEEK_API_KEY or OPENAI_API_KEY"):
         cli.main(["agent", "--repo", "owner/repo", "--issue", "1"])
+
+
+# ── _run_remote_checks ──────────────────────────────────────────────────────
+
+
+class _FakeResponse:
+    def __init__(self, status_code, json_data=None):
+        self.status_code = status_code
+        self._json = json_data or {}
+
+    def json(self):
+        return self._json
+
+
+def test_run_remote_checks_success_with_discussions(monkeypatch, capsys):
+    """200 + has_discussions=True → both checks pass."""
+    def fake_get(url, headers, timeout):
+        return _FakeResponse(200, {"has_discussions": True})
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    failed, warnings = cli._run_remote_checks("tk", "owner/repo", 0, 0)
+    assert failed == 0
+    assert warnings == 0
+    out = capsys.readouterr().out
+    assert "[ok] Token can access owner/repo" in out
+    assert "[ok] Discussions enabled" in out
+
+
+def test_run_remote_checks_success_no_discussions(monkeypatch, capsys):
+    """200 + has_discussions=False → warns about missing discussions."""
+    def fake_get(url, headers, timeout):
+        return _FakeResponse(200, {"has_discussions": False})
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    failed, warnings = cli._run_remote_checks("tk", "owner/repo", 0, 0)
+    assert failed == 0
+    assert warnings == 1
+    out = capsys.readouterr().out
+    assert "[warn] Discussions enabled" in out
+
+
+def test_run_remote_checks_404(monkeypatch, capsys):
+    """404 → failed + fix hint."""
+    def fake_get(url, headers, timeout):
+        return _FakeResponse(404)
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    failed, warnings = cli._run_remote_checks("tk", "owner/repo", 0, 0)
+    assert failed == 1
+    assert warnings == 0
+    out = capsys.readouterr().out
+    assert "404 — repo not found" in out
+
+
+def test_run_remote_checks_401(monkeypatch, capsys):
+    """401 → warning (not failure) + fix hint."""
+    def fake_get(url, headers, timeout):
+        return _FakeResponse(401)
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    failed, warnings = cli._run_remote_checks("tk", "owner/repo", 0, 0)
+    assert failed == 0
+    assert warnings == 1
+    out = capsys.readouterr().out
+    assert "401 — token is invalid" in out
+
+
+def test_run_remote_checks_other_status(monkeypatch, capsys):
+    """Unexpected HTTP status → warning."""
+    def fake_get(url, headers, timeout):
+        return _FakeResponse(500)
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    failed, warnings = cli._run_remote_checks("tk", "owner/repo", 0, 0)
+    assert failed == 0
+    assert warnings == 1
+    out = capsys.readouterr().out
+    assert "HTTP 500" in out
+
+
+def test_run_remote_checks_connection_error(monkeypatch, capsys):
+    """ConnectionError → warning."""
+    def fake_get(url, headers, timeout):
+        raise ConnectionError("no route to host")
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    failed, warnings = cli._run_remote_checks("tk", "owner/repo", 0, 0)
+    assert failed == 0
+    assert warnings == 1
+    out = capsys.readouterr().out
+    assert "request failed" in out
+
+
+# ── agent --dry-run ─────────────────────────────────────────────────────────
+
+
+def test_agent_dry_run_cli(monkeypatch, capsys):
+    """agent --dry-run prints plan JSON and returns 0."""
+    monkeypatch.setattr(
+        cli,
+        "run_agent",
+        lambda **kw: {
+            "skip": True,
+            "reason": "dry-run",
+            "plan": {"branch_name": "repokeeper/issue-1-fix", "summary": "fix"},
+        },
+    )
+    exit_code = cli.main(["agent", "--repo", "owner/repo", "--issue", "1", "--dry-run"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "repokeeper/issue-1-fix" in out
+
+
+def test_agent_dry_run_passes_flag(monkeypatch):
+    """--dry-run flag is passed through to run_agent."""
+    captured = {}
+    monkeypatch.setattr(cli, "run_agent", lambda **kw: captured.update(kw) or {"skip": True, "reason": "dry-run"})
+    cli.main(["agent", "--repo", "owner/repo", "--issue", "1", "--dry-run"])
+    assert captured.get("dry_run") is True

@@ -14,19 +14,19 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path
 from typing import Any
 
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
 
+from repokeeper.exceptions import ConfigError, LLMParseError, PermissionDeniedError
 from repokeeper.git_ops import (
     BLOCKED_PREFIXES,  # noqa: F401  # re-export
     apply_and_push,  # noqa: F401  # re-export
 )
 from repokeeper.git_ops import git as _git  # noqa: F401  # re-export
-from repokeeper.llm_client import LLMClient, TokenUsage
+from repokeeper.llm_client import LLMClient, TokenUsage, parse_llm_json
 from repokeeper.logs import get_logger
 from repokeeper.profile import load_profile
 from repokeeper.repo_context import (  # noqa: F401  # re-export
@@ -199,118 +199,6 @@ Respond with a single valid JSON object — no markdown fences, no explanation o
 """
 
 
-def _parse_llm_json(raw: str) -> dict[str, Any]:
-    """Parse LLM JSON output with resilience to common formatting issues.
-
-    Handles markdown fences, code block markers, and attempts basic repair
-    for unterminated strings.
-
-    Args:
-        raw: Raw text content from LLM response.
-
-    Returns:
-        Parsed JSON dict.
-
-    Raises:
-        ValueError: If the response could not be parsed as JSON.
-    """
-    text = raw.strip()
-
-    # ── Strip markdown code fences ──
-    fence_pattern = r"```(?:json)?\s*\n(.*?)\n```"
-    m = re.search(fence_pattern, text, re.DOTALL)
-    if m:
-        text = m.group(1).strip()
-    elif text.startswith("```"):
-        inner = text.split("```", 2)
-        if len(inner) >= 2:
-            candidate = inner[1]
-            if candidate.startswith("json"):
-                candidate = candidate[4:]
-            text = candidate.strip()
-
-    # ── Try direct parse ──
-    try:
-        return json.loads(text)  # type: ignore[no-any-return]
-    except json.JSONDecodeError as err:
-        first_error = err
-
-    # ── Try extracting the outermost JSON object ──
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        extracted = text[start : end + 1]
-        try:
-            return json.loads(extracted)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
-
-    # ── Try fixing common unterminated string ──
-    repaired = _repair_truncated_json(text)
-    if repaired is not None:
-        try:
-            return json.loads(repaired)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
-
-    raise ValueError(
-        f"Failed to parse LLM JSON response. First error: {first_error}\n"
-        f"Raw response (last 2000 chars): ...{text[-2000:]}"
-    )
-
-
-def _repair_truncated_json(text: str) -> str | None:
-    """Attempt to repair a truncated/incomplete JSON string.
-
-    Tries to find the last complete key-value pair and close the object.
-
-    Args:
-        text: Possibly truncated JSON string.
-
-    Returns:
-        Repaired string or ``None`` if repair is not possible.
-    """
-    bracket_stack: list[str] = []
-    in_string = False
-    escape_next = False
-
-    for ch in text:
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\":
-            escape_next = True
-            continue
-        if ch == '"' and not escape_next:
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch in "{[":
-            bracket_stack.append(ch)
-        elif ch == "}":
-            if bracket_stack and bracket_stack[-1] == "{":
-                bracket_stack.pop()
-        elif ch == "]":
-            if bracket_stack and bracket_stack[-1] == "[":
-                bracket_stack.pop()
-
-    if not bracket_stack and not in_string:
-        return None
-
-    repaired = text.rstrip()
-    if in_string:
-        repaired += '"'
-
-    for open_ch in reversed(bracket_stack):
-        if open_ch == "{":
-            repaired += "}"
-        elif open_ch == "[":
-            repaired += "]"
-
-    return repaired if repaired != text else None
-
-
 def call_llm(
     issue_data: dict[str, Any],
     context_str: str,
@@ -329,7 +217,7 @@ def call_llm(
         Tuple of (parsed JSON response, token usage info).
 
     Raises:
-        RuntimeError: If JSON parsing fails after retries.
+        LLMParseError: If JSON parsing fails after retries.
     """
     from repokeeper.llm_client import TokenUsage
 
@@ -394,8 +282,8 @@ def call_llm(
         raw = response.content.strip()
 
         try:
-            return _parse_llm_json(raw), total_usage
-        except ValueError as err:
+            return parse_llm_json(raw), total_usage
+        except (ValueError, LLMParseError) as err:
             if attempt < max_retries:
                 logger.warning(
                     "JSON parse failed (attempt %d), retrying...", attempt + 1,
@@ -411,13 +299,13 @@ def call_llm(
                     ),
                 })
             else:
-                raise RuntimeError(
+                raise LLMParseError(
                     f"LLM JSON parsing failed after {max_retries + 1} attempts. "
                     f"Last error: {err}"
                 ) from err
 
     # Unreachable — satisfy type checker
-    raise RuntimeError("LLM JSON parsing failed")
+    raise LLMParseError("LLM JSON parsing failed")
 
 
 # ─── PR creation ─────────────────────────────────────────────────────────────
@@ -445,7 +333,7 @@ def create_pr(
         PR URL.
 
     Raises:
-        RuntimeError: If GitHub refuses to create the PR (e.g. permissions).
+        PermissionDeniedError: If GitHub refuses to create the PR (e.g. permissions).
     """
     files_list = "\n".join(f"- `{f}`" for f in changed_files)
 
@@ -472,7 +360,7 @@ Closes #{issue_data['number']}
         )
     except GithubException as exc:
         if exc.status == 403 and "not permitted to create" in str(exc):
-            raise RuntimeError(
+            raise PermissionDeniedError(
                 "GitHub refused to create the pull request. Enable repository Actions "
                 "'Allow GitHub Actions to create and approve pull requests', or set "
                 "REPOKEEPER_GITHUB_TOKEN to a token with contents and pull request "
@@ -492,11 +380,17 @@ def run_agent(
     llm_api_key: str | None = None,
     llm_base_url: str | None = None,
     profile_path: str | Path | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Run the Implementation Agent end-to-end.
 
+    Args:
+        dry_run: If True, stop after generating the implementation plan
+                 and return it without applying changes or creating a PR.
+
     Returns:
-        Dict with result info (``pr_url``, ``skip`` reason, ``error``).
+        Dict with result info (``pr_url``, ``skip`` reason, ``error``,
+        and ``plan`` when dry_run=True).
     """
     gh_token = (
         gh_token
@@ -522,7 +416,7 @@ def run_agent(
     if not llm_api_key:
         missing.append("DEEPSEEK_API_KEY or OPENAI_API_KEY")
     if missing:
-        raise RuntimeError(f"Missing required configuration: {', '.join(missing)}")
+        raise ConfigError(f"Missing required configuration: {', '.join(missing)}")
 
     profile = load_profile(profile_path)
 
@@ -627,6 +521,27 @@ def run_agent(
             }
 
         logger.info("Plan: %s", result["summary"])
+
+        if dry_run:
+            logger.info("Dry-run mode — skipping apply and PR creation")
+            plan_detail = {
+                "branch_name": result.get("branch_name", "repokeeper/unknown"),
+                "commit_message": result.get("commit_message", ""),
+                "summary": result.get("summary", ""),
+                "changes": list(result.get("changes", {}).keys()),
+                "new_files": list(result.get("new_files", {}).keys()),
+            }
+            post_comment(
+                issue_obj,
+                f"🤖 **RepoKeeper** dry-run plan:\n\n"
+                f"**Branch:** `{plan_detail['branch_name']}`\n"
+                f"**Commit:** {plan_detail['commit_message']}\n"
+                f"**Summary:** {plan_detail['summary']}\n"
+                f"**Files to modify:** {', '.join(plan_detail['changes']) or '(none)'}\n"
+                f"**Files to create:** {', '.join(plan_detail['new_files']) or '(none)'}\n\n"
+                f"*No changes were applied. Use `@repokeeper go` or `agent-todo` label to implement.*",
+            )
+            return {"skip": True, "reason": "dry-run", "pr_url": None, "plan": plan_detail}
 
         # Resolve branch name collisions — append timestamp if branch exists
         branch_name = result.get("branch_name", "repokeeper/unknown")

@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from repokeeper.exceptions import GitOperationError, VerificationError
+
 # Paths the implementation agent must never modify (GitHub Actions security)
 BLOCKED_PREFIXES = (".github/workflows/",)
 
@@ -59,13 +61,14 @@ def safe_repo_path(
     return resolved
 
 
-def git(*args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
+def git(*args: str, check: bool = True, capture: bool = False, cwd: str | Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run a git command and return the completed process.
 
     Args:
         *args: Git subcommand and arguments, e.g. ``git("checkout", "-b", "my-branch")``.
         check: If True, raise on non-zero exit.
         capture: If True, capture stdout/stderr as text.
+        cwd: Working directory for the git command.  Defaults to the current directory.
 
     Returns:
         CompletedProcess with ``stdout`` and ``stderr`` attributes.
@@ -73,6 +76,8 @@ def git(*args: str, check: bool = True, capture: bool = False) -> subprocess.Com
     kwargs: dict = {"check": check}
     if capture:
         kwargs.update({"capture_output": True, "text": True})
+    if cwd is not None:
+        kwargs["cwd"] = str(cwd)
     return subprocess.run(["git", *args], **kwargs)
 
 
@@ -95,7 +100,8 @@ def apply_and_push(
         Tuple of ``(branch_name, list_of_changed_files)``.
 
     Raises:
-        RuntimeError: If no file changes were produced or verification fails.
+        GitOperationError: If no file changes were produced.
+        VerificationError: If pre-push verification fails.
     """
     from repokeeper.verifier import (  # local import to avoid circular dependency
         format_verification_failures,
@@ -133,13 +139,13 @@ def apply_and_push(
     # Verify something changed
     diff = git("diff", "--cached", "--name-only", capture=True).stdout.strip()
     if not diff:
-        raise RuntimeError("Agent produced no file changes.")
+        raise GitOperationError("Agent produced no file changes.")
 
     if profile is not None:
         verification_results = run_verification_commands(profile)
         failure_message = format_verification_failures(verification_results)
         if failure_message:
-            raise RuntimeError(failure_message)
+            raise VerificationError(failure_message)
 
     git("commit", "-m", implementation["commit_message"])
 

@@ -992,6 +992,37 @@ def test_run_patrol_publishes_implement_stale_issue_candidate(monkeypatch):
     assert published == [stale_issue]
 
 
+def test_run_patrol_stale_publish_failure_adds_warning(monkeypatch):
+    """When publish_stale_issue_candidate returns False, a warning is added."""
+    stale_issue = StaleIssue(
+        number=10, title="Old bug", url="https://ex.test/issues/10",
+        author="bob", created_at=datetime(2025, 1, 1),
+        last_updated=datetime(2025, 1, 1), days_stale=100,
+    )
+    monkeypatch.setattr("repokeeper.patrol.scan_dependencies", lambda *a, **kw: [])
+    monkeypatch.setattr("repokeeper.patrol.scan_ci_failures", lambda *a, **kw: [])
+    monkeypatch.setattr("repokeeper.patrol.scan_stale_issues", lambda *a, **kw: [stale_issue])
+
+    def fake_summarize(issue, *args, **kwargs):
+        issue.summary = "Stale."
+        issue.suggested_action = "implement"
+        return issue
+
+    monkeypatch.setattr("repokeeper.patrol.summarize_stale_issue", fake_summarize)
+    monkeypatch.setattr(
+        "repokeeper.patrol.publish_stale_issue_candidate",
+        lambda gh, repo, issue: False,
+    )
+
+    report = run_patrol(
+        MagicMock(), MagicMock(), "owner/repo",
+        profile={"patrol": {"enabled": True, "stale_days": 90, "ci_auto_fix": False}},
+    )
+
+    assert len(report.warnings) >= 1
+    assert any("Failed to publish Patrol candidate" in w for w in report.warnings)
+
+
 # ── create_dependency_upgrade_pr ──────────────────────────────────────────────
 
 
@@ -1269,15 +1300,17 @@ def test_attempt_ci_auto_fix_creates_pr(tmp_path, monkeypatch):
         log_snippet="log",
     )
 
-    # Override subprocess.run globally for the push to succeed
-    original_run = sp.run
+    # Override subprocess.run in git_ops for the push to succeed
+    import repokeeper.git_ops
+
+    original_run_gitops = repokeeper.git_ops.subprocess.run
     push_called = []
     def mock_push(*args, **kwargs):
         if len(args) >= 1 and isinstance(args[0], list) and args[0][:2] == ["git", "push"]:
             push_called.append(True)
             return sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        return original_run(*args, **kwargs)
-    monkeypatch.setattr(sp, "run", mock_push)
+        return original_run_gitops(*args, **kwargs)
+    monkeypatch.setattr(repokeeper.git_ops.subprocess, "run", mock_push)
 
     result = attempt_ci_auto_fix(
         failure, mock_llm, mock_gh, "owner/repo",

@@ -11,6 +11,7 @@ from typing import Any
 
 from github import Github
 
+from repokeeper.exceptions import AuthError, ConfigError
 from repokeeper.llm_client import LLMClient
 
 from . import __version__
@@ -27,14 +28,14 @@ ALL_WORKFLOWS = (AGENT_WORKFLOW, *OPTIONAL_WORKFLOWS)
 def _make_github_client(token: str | None) -> Github:
     token = token or os.environ.get("REPOKEEPER_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
-        raise SystemExit("Missing GitHub token. Set REPOKEEPER_GITHUB_TOKEN or GITHUB_TOKEN.")
+        raise AuthError("Missing GitHub token. Set REPOKEEPER_GITHUB_TOKEN or GITHUB_TOKEN.")
     return Github(token)
 
 
 def _make_llm_client(api_key: str | None, base_url: str | None) -> LLMClient:
     api_key = api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise SystemExit("Missing LLM API key. Set DEEPSEEK_API_KEY or OPENAI_API_KEY.")
+        raise ConfigError("Missing LLM API key. Set DEEPSEEK_API_KEY or OPENAI_API_KEY.")
     return LLMClient(
         api_key=api_key,
         base_url=base_url or os.environ.get("LLM_BASE_URL"),
@@ -143,9 +144,16 @@ def cmd_agent(args: argparse.Namespace) -> int:
         llm_api_key=args.llm_api_key,
         llm_base_url=args.llm_base_url,
         profile_path=args.profile,
+        dry_run=args.dry_run,
     )
     if result.get("skip"):
-        print(f"Skipped: {result.get('reason', '')}")
+        reason = result.get("reason", "")
+        if result.get("plan"):
+            import json as _json
+
+            print(_json.dumps(result["plan"], indent=2))
+        else:
+            print(f"Skipped: {reason}")
         return 0
     print(f"PR created: {result.get('pr_url')}")
     return 0
@@ -153,6 +161,82 @@ def cmd_agent(args: argparse.Namespace) -> int:
 
 def _has_env(name: str) -> bool:
     return bool(os.environ.get(name))
+
+
+def _run_remote_checks(token: str, repo_slug: str, failed: int, warnings: int) -> tuple[int, int]:
+    """Verify the GitHub token can access the repository and inspect features.
+
+    Args:
+        token: GitHub personal access token.
+        repo_slug: Repository as ``owner/name``.
+        failed: Current failure counter (mutated via return).
+        warnings: Current warning counter (mutated via return).
+
+    Returns:
+        Updated ``(failed, warnings)`` tuple.
+    """
+    import requests as _requests
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    # 1. Verify token can access the repository
+    try:
+        resp = _requests.get(
+            f"https://api.github.com/repos/{repo_slug}",
+            headers=headers,
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            repo_data = resp.json()
+            _print_check(True, f"Token can access {repo_slug}")
+
+            # 2. Check if Discussions are enabled
+            has_discussions = repo_data.get("has_discussions", False)
+            if has_discussions:
+                _print_check(True, "Discussions enabled")
+            else:
+                _print_check(
+                    False,
+                    "Discussions enabled",
+                    "Radar discussion scanning will be unavailable",
+                    status_if_false="warn",
+                )
+                warnings += 1
+
+        elif resp.status_code == 404:
+            _print_check(False, f"Token can access {repo_slug}", "404 — repo not found or token lacks access")
+            failed += 1
+            _print_fix("verify the repository slug is correct and the token has repo scope")
+        elif resp.status_code == 401:
+            _print_check(
+                False,
+                f"Token can access {repo_slug}",
+                "401 — token is invalid or expired",
+                status_if_false="warn",
+            )
+            warnings += 1
+            _print_fix("regenerate the token in GitHub Settings → Developer settings → Personal access tokens")
+        else:
+            _print_check(
+                False,
+                f"Token can access {repo_slug}",
+                f"HTTP {resp.status_code}",
+                status_if_false="warn",
+            )
+            warnings += 1
+    except Exception as exc:
+        _print_check(
+            False,
+            f"Token can access {repo_slug}",
+            f"request failed: {exc}",
+            status_if_false="warn",
+        )
+        warnings += 1
+
+    return failed, warnings
 
 
 def _print_check(ok: bool, label: str, detail: str = "", status_if_false: str = "missing") -> None:
@@ -264,6 +348,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         failed += 1
         _print_fix("repokeeper doctor --repo owner/name")
 
+    # ── Remote checks (only when token + slug are present) ──
+    if github_token and repo_slug:
+        actual_token = os.environ.get("REPOKEEPER_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+        failed, warnings = _run_remote_checks(actual_token, repo_slug, failed, warnings)
+
     if failed:
         print(f"\nDoctor found {failed} issue(s) and {warnings} warning(s).")
         return 1
@@ -332,12 +421,19 @@ def build_parser() -> argparse.ArgumentParser:
     agent = subparsers.add_parser("agent", help="Run Implementation Agent for an issue")
     add_common_remote(agent)
     agent.add_argument("--issue", required=True, type=int, help="GitHub issue number")
+    agent.add_argument(
+        "--dry-run", action="store_true",
+        help="Generate an implementation plan without applying changes or creating a PR",
+    )
     agent.set_defaults(func=cmd_agent)
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    from repokeeper.logs import setup_logging
+
+    setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)  # type: ignore[no-any-return]

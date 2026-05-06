@@ -25,6 +25,7 @@ from repokeeper.git_ops import (
     apply_and_push,  # noqa: F401  # re-export
 )
 from repokeeper.git_ops import git as _git  # noqa: F401  # re-export
+from repokeeper.exceptions import ConfigError, LLMParseError, PermissionDeniedError
 from repokeeper.llm_client import LLMClient, TokenUsage, parse_llm_json
 from repokeeper.logs import get_logger
 from repokeeper.profile import load_profile
@@ -216,7 +217,7 @@ def call_llm(
         Tuple of (parsed JSON response, token usage info).
 
     Raises:
-        RuntimeError: If JSON parsing fails after retries.
+        LLMParseError: If JSON parsing fails after retries.
     """
     from repokeeper.llm_client import TokenUsage
 
@@ -298,13 +299,13 @@ def call_llm(
                     ),
                 })
             else:
-                raise RuntimeError(
+                raise LLMParseError(
                     f"LLM JSON parsing failed after {max_retries + 1} attempts. "
                     f"Last error: {err}"
                 ) from err
 
     # Unreachable — satisfy type checker
-    raise RuntimeError("LLM JSON parsing failed")
+    raise LLMParseError("LLM JSON parsing failed")
 
 
 # ─── PR creation ─────────────────────────────────────────────────────────────
@@ -332,7 +333,7 @@ def create_pr(
         PR URL.
 
     Raises:
-        RuntimeError: If GitHub refuses to create the PR (e.g. permissions).
+        PermissionDeniedError: If GitHub refuses to create the PR (e.g. permissions).
     """
     files_list = "\n".join(f"- `{f}`" for f in changed_files)
 
@@ -359,7 +360,7 @@ Closes #{issue_data['number']}
         )
     except GithubException as exc:
         if exc.status == 403 and "not permitted to create" in str(exc):
-            raise RuntimeError(
+            raise PermissionDeniedError(
                 "GitHub refused to create the pull request. Enable repository Actions "
                 "'Allow GitHub Actions to create and approve pull requests', or set "
                 "REPOKEEPER_GITHUB_TOKEN to a token with contents and pull request "
@@ -409,7 +410,7 @@ def run_agent(
     if not llm_api_key:
         missing.append("DEEPSEEK_API_KEY or OPENAI_API_KEY")
     if missing:
-        raise RuntimeError(f"Missing required configuration: {', '.join(missing)}")
+        raise ConfigError(f"Missing required configuration: {', '.join(missing)}")
 
     profile = load_profile(profile_path)
 

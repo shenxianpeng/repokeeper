@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from repokeeper import cli
+from repokeeper.exceptions import ConfigError
 
 
 def test_cli_help_exits_success(capsys):
@@ -279,9 +280,9 @@ def test_cmd_radar_missing_token(tmp_path, monkeypatch):
 
 
 def test_cmd_agent_missing_llm_key(tmp_path, monkeypatch):
-    """agent command raises RuntimeError when LLM key is missing."""
+    """agent command raises ConfigError when LLM key is missing."""
     monkeypatch.setenv("GITHUB_TOKEN", "tk")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY or OPENAI_API_KEY"):
+    with pytest.raises(ConfigError, match="DEEPSEEK_API_KEY or OPENAI_API_KEY"):
         cli.main(["agent", "--repo", "owner/repo", "--issue", "1"])

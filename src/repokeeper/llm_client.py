@@ -14,6 +14,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from repokeeper.exceptions import AuthError, LLMParseError
 from repokeeper.logs import get_logger
 
 logger = get_logger("llm")
@@ -360,7 +361,7 @@ class LLMClient:
         base_url = base_url or os.environ.get("LLM_BASE_URL")
 
         if not api_key:
-            raise ValueError("No LLM API key found. Set DEEPSEEK_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.")
+            raise AuthError("No LLM API key found. Set DEEPSEEK_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.")
 
         # Auto-detect provider
         if provider == "auto":
@@ -502,7 +503,7 @@ def parse_llm_json(raw: str) -> dict[str, Any]:
         Parsed JSON dict.
 
     Raises:
-        ValueError: If the response could not be parsed as JSON.
+        LLMParseError: If the response could not be parsed as JSON.
     """
     import json as _json
     import re as _re
@@ -546,7 +547,7 @@ def parse_llm_json(raw: str) -> dict[str, Any]:
         except _json.JSONDecodeError:
             pass
 
-    raise ValueError(
+    raise LLMParseError(
         f"Failed to parse LLM JSON response. First error: {first_error}\n"
         f"Raw response (last 2000 chars): ...{text[-2000:]}"
     )

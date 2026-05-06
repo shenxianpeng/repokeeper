@@ -11,6 +11,7 @@ from typing import Any
 
 from github import Github
 
+from repokeeper.exceptions import AuthError, ConfigError
 from repokeeper.llm_client import LLMClient
 
 from . import __version__
@@ -27,14 +28,14 @@ ALL_WORKFLOWS = (AGENT_WORKFLOW, *OPTIONAL_WORKFLOWS)
 def _make_github_client(token: str | None) -> Github:
     token = token or os.environ.get("REPOKEEPER_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
-        raise SystemExit("Missing GitHub token. Set REPOKEEPER_GITHUB_TOKEN or GITHUB_TOKEN.")
+        raise AuthError("Missing GitHub token. Set REPOKEEPER_GITHUB_TOKEN or GITHUB_TOKEN.")
     return Github(token)
 
 
 def _make_llm_client(api_key: str | None, base_url: str | None) -> LLMClient:
     api_key = api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise SystemExit("Missing LLM API key. Set DEEPSEEK_API_KEY or OPENAI_API_KEY.")
+        raise ConfigError("Missing LLM API key. Set DEEPSEEK_API_KEY or OPENAI_API_KEY.")
     return LLMClient(
         api_key=api_key,
         base_url=base_url or os.environ.get("LLM_BASE_URL"),

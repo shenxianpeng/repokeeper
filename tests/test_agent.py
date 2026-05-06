@@ -10,9 +10,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from repokeeper import agent
+from repokeeper.exceptions import (
+    ConfigError,
+    GitOperationError,
+    LLMParseError,
+    PermissionDeniedError,
+    VerificationError,
+)
+from repokeeper.llm_client import parse_llm_json
 from repokeeper.agent import (
-    _parse_llm_json,
-    _repair_truncated_json,
     apply_and_push,
     build_context_string,
     call_llm,
@@ -235,114 +241,114 @@ def test_get_issue_data_body_present():
     assert len(data["comments"]) == 1
 
 
-# ── _parse_llm_json ─────────────────────────────────────────────────────────
+# ── parse_llm_json ─────────────────────────────────────────────────────────
 
 def test_parse_llm_json_direct():
     """Plain JSON without fences."""
-    result = _parse_llm_json('{"skip": true, "reason": "test"}')
+    result = parse_llm_json('{"skip": true, "reason": "test"}')
     assert result == {"skip": True, "reason": "test"}
 
 
 def test_parse_llm_json_with_fences():
     """JSON inside ```json ... ``` fences."""
-    result = _parse_llm_json('```json\n{"skip": false}\n```')
+    result = parse_llm_json('```json\n{"skip": false}\n```')
     assert result == {"skip": False}
 
 
 def test_parse_llm_json_with_plain_fences():
     """JSON inside ``` ... ``` without language tag."""
-    result = _parse_llm_json('```\n{"skip": false}\n```')
+    result = parse_llm_json('```\n{"skip": false}\n```')
     assert result == {"skip": False}
 
 
 def test_parse_llm_json_partial_fence():
     """Text that starts with ``` but may not have proper closing."""
-    result = _parse_llm_json('```json\n{"skip": false}')
+    result = parse_llm_json('```json\n{"skip": false}')
     assert result == {"skip": False}
 
 
 def test_parse_llm_json_partial_fence_no_lang():
-    result = _parse_llm_json('```\n{"skip": false}')
+    result = parse_llm_json('```\n{"skip": false}')
     assert result == {"skip": False}
 
 
 def test_parse_llm_json_outer_object_extraction():
     """Text with explanatory content before/after JSON."""
     raw = 'Here is my plan:\n{"skip": true, "reason": "too big"}\nLet me know if you agree.'
-    result = _parse_llm_json(raw)
+    result = parse_llm_json(raw)
     assert result == {"skip": True, "reason": "too big"}
 
 
 def test_parse_llm_json_truncated_string_repair():
     """Unterminated string gets repaired."""
     raw = '{"skip": true, "reason": "incomplete'
-    result = _parse_llm_json(raw)
+    result = parse_llm_json(raw)
     assert result == {"skip": True, "reason": "incomplete"}
 
 
 def test_parse_llm_json_truncated_with_open_brace():
     """Missing closing brace gets repaired."""
     raw = '{"skip": true, "reason": "ok"'
-    result = _parse_llm_json(raw)
+    result = parse_llm_json(raw)
     assert result == {"skip": True, "reason": "ok"}
 
 
 def test_parse_llm_json_truncated_nested():
     """Nested braces with truncation."""
     raw = '{"changes":{"a.py":"hello'
-    result = _parse_llm_json(raw)
+    result = parse_llm_json(raw)
     assert result == {"changes": {"a.py": "hello"}}
 
 
 def test_parse_llm_json_unrepairable():
     """Totally broken JSON that can't be repaired."""
-    with pytest.raises(ValueError, match="Failed to parse LLM JSON response"):
-        _parse_llm_json('not even close to json at all')
+    with pytest.raises(LLMParseError, match="Failed to parse LLM JSON response"):
+        parse_llm_json('not even close to json at all')
 
 
 def test_parse_llm_json_empty_string():
-    with pytest.raises(ValueError, match="Failed to parse LLM JSON response"):
-        _parse_llm_json("")
+    with pytest.raises(LLMParseError, match="Failed to parse LLM JSON response"):
+        parse_llm_json("")
 
 
-# ── _repair_truncated_json ──────────────────────────────────────────────────
+# ── repair_truncated_json ──────────────────────────────────────────────────
 
 def test_repair_truncated_json_balanced():
     """Already-balanced JSON returns None (no repair needed)."""
-    assert _repair_truncated_json('{"a":1}') is None
+    assert repair_truncated_json('{"a":1}') is None
 
 
 def test_repair_truncated_json_in_string():
     """String cut off mid-value."""
-    result = _repair_truncated_json('{"key": "value')
+    result = repair_truncated_json('{"key": "value')
     assert result is not None
     assert json.loads(result) == {"key": "value"}
 
 
 def test_repair_truncated_json_missing_brace():
     """Missing closing brace."""
-    result = _repair_truncated_json('{"key": 1')
+    result = repair_truncated_json('{"key": 1')
     assert result is not None
     assert json.loads(result) == {"key": 1}
 
 
 def test_repair_truncated_json_missing_brace_in_string():
     """String content without closing quote AND missing brace."""
-    result = _repair_truncated_json('{"key": "value')
+    result = repair_truncated_json('{"key": "value')
     assert result is not None
     assert json.loads(result) == {"key": "value"}
 
 
 def test_repair_truncated_json_nested_braces():
     """Nested object missing closing braces."""
-    result = _repair_truncated_json('{"outer": {"inner": 1')
+    result = repair_truncated_json('{"outer": {"inner": 1')
     assert result is not None
     assert json.loads(result) == {"outer": {"inner": 1}}
 
 
 def test_repair_truncated_json_array():
     """Array value inside object, truncated."""
-    result = _repair_truncated_json('[1, 2, 3')
+    result = repair_truncated_json('[1, 2, 3')
     assert result is not None
     assert json.loads(result) == [1, 2, 3]
 
@@ -351,7 +357,7 @@ def test_repair_truncated_json_escape_handling():
     """String with escaped quote should not confuse the parser."""
     text = '{"key": "val\\"ue'
     # The escaped quote is part of the string, parser should handle it
-    result = _repair_truncated_json(text)
+    result = repair_truncated_json(text)
     # Will try to repair; the exact behavior depends on escape tracking
     # Just verify it doesn't crash
     assert isinstance(result, (str, type(None)))
@@ -451,7 +457,7 @@ def test_call_llm_exhausts_retries():
             call_count[0] += 1
             return Response()
 
-    with pytest.raises(RuntimeError, match="LLM JSON parsing failed after 3 attempts"):
+    with pytest.raises(LLMParseError, match="LLM JSON parsing failed after 3 attempts"):
         call_llm(
             {"number": 1, "title": "T", "body": "B", "comments": []},
             "ctx",
@@ -601,7 +607,7 @@ def test_apply_and_push_no_changes_raises(tmp_path, monkeypatch):
         "commit_message": "empty",
     }
 
-    with pytest.raises(RuntimeError, match="Agent produced no file changes"):
+    with pytest.raises(GitOperationError, match="Agent produced no file changes"):
         apply_and_push(impl, "token", "owner/repo")
 
 
@@ -761,7 +767,7 @@ def test_apply_and_push_runs_verification_before_commit(tmp_path, monkeypatch):
     }
     profile = {"agent": {"verify_commands": [[sys.executable, "-c", "import sys; sys.exit(4)"]]}}
 
-    with pytest.raises(RuntimeError, match="Verification failed"):
+    with pytest.raises(VerificationError, match="Verification failed"):
         apply_and_push(impl, "token", "owner/repo", profile)
 
     result = subprocess.run(["git", "log", "--oneline"], capture_output=True, text=True, check=True)
@@ -801,7 +807,7 @@ def test_create_pr_handles_403_permission_error():
             from github.GithubException import GithubException
             raise GithubException(403, "not permitted to create pull requests", {})
 
-    with pytest.raises(RuntimeError, match="GitHub refused to create the pull request"):
+    with pytest.raises(PermissionDeniedError, match="GitHub refused to create the pull request"):
         create_pr(
             Repo(),
             {"number": 1},
@@ -844,7 +850,7 @@ def test_run_agent_missing_config(monkeypatch):
     """Missing required config raises RuntimeError."""
     for name in ("GITHUB_TOKEN", "GITHUB_REPOSITORY", "ISSUE_NUMBER", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
-    with pytest.raises(RuntimeError, match="Missing required configuration"):
+    with pytest.raises(ConfigError, match="Missing required configuration"):
         run_agent()
 
 
@@ -855,7 +861,7 @@ def test_run_agent_missing_some_config(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("ISSUE_NUMBER", "5")
-    with pytest.raises(RuntimeError, match="GITHUB_TOKEN or REPOKEEPER_GITHUB_TOKEN"):
+    with pytest.raises(ConfigError, match="GITHUB_TOKEN or REPOKEEPER_GITHUB_TOKEN"):
         run_agent()
 
 
@@ -1113,11 +1119,11 @@ def test_run_agent_error_handling(monkeypatch):
     monkeypatch.setattr(agent, "collect_repo_files", lambda **kw: {"a.py": "code"})
 
     def fake_call_llm(*args, **kwargs):
-        raise RuntimeError("LLM exploded")
+        raise LLMParseError("LLM exploded")
 
     monkeypatch.setattr(agent, "call_llm", fake_call_llm)
 
-    with pytest.raises(RuntimeError, match="LLM exploded"):
+    with pytest.raises(LLMParseError, match="LLM exploded"):
         run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
 
     # Error comment was posted
@@ -1142,7 +1148,7 @@ def test_run_agent_uses_repokeeper_github_token_env(monkeypatch):
         def __init__(self, token):
             captured_token.append(token)
         def get_repo(self, name):
-            raise RuntimeError("should not be called in skip path")
+            raise AssertionError("should not be called in skip path")
 
     monkeypatch.setattr(agent, "Github", CapturingGithub)
 
@@ -1270,12 +1276,12 @@ def test_run_agent_uses_openai_api_key_fallback(monkeypatch):
     assert llm_kwargs["api_key"] == "openai-key"
 
 
-# ── _parse_llm_json edge cases ──────────────────────────────────────────────
+# ── parse_llm_json edge cases ──────────────────────────────────────────────
 
 def test_parse_llm_json_fence_regex_takes_priority():
     """Regex fence extraction works before the startswith check."""
     raw = '```json\n{"skip": true, "reason": "fence match"}\n```'
-    result = _parse_llm_json(raw)
+    result = parse_llm_json(raw)
     assert result == {"skip": True, "reason": "fence match"}
 
 
@@ -1283,41 +1289,41 @@ def test_parse_llm_json_repair_succeeds_after_outer_fails():
     """When outer extraction fails, truncation repair saves the day."""
     # JSON with a truncated string that has {} inside string content
     raw = '{"key": "unterminated'
-    result = _parse_llm_json(raw)
+    result = parse_llm_json(raw)
     assert result == {"key": "unterminated"}
 
 
 def test_parse_llm_json_single_open_brace():
     """A single open brace is repaired to empty object."""
-    result = _parse_llm_json('{')
+    result = parse_llm_json('{')
     assert result == {}
 
 
-# ── _repair_truncated_json edge cases ───────────────────────────────────────
+# ── repair_truncated_json edge cases ───────────────────────────────────────
 
 def test_repair_truncated_json_extra_closing_braces():
     """Extra closing braces are ignored (already balanced)."""
-    result = _repair_truncated_json('{"a": 1}}')
+    result = repair_truncated_json('{"a": 1}}')
     assert result is None
 
 
 def test_repair_truncated_json_mixed_brackets():
     """Mix of [] and {}."""
-    result = _repair_truncated_json('{"a": [1, 2')
+    result = repair_truncated_json('{"a": [1, 2')
     assert result is not None
     assert json.loads(result) == {"a": [1, 2]}
 
 
 def test_repair_truncated_json_array_in_object_unclosed():
     """Unclosed array inside an object."""
-    result = _repair_truncated_json('{"items": [1')
+    result = repair_truncated_json('{"items": [1')
     assert result is not None
     assert json.loads(result) == {"items": [1]}
 
 
 def test_repair_truncated_json_nested_mixed_unclosed():
     """Multiple unclosed structures."""
-    result = _repair_truncated_json('{"outer": {"inner": [1, 2')
+    result = repair_truncated_json('{"outer": {"inner": [1, 2')
     assert result is not None
     assert json.loads(result) == {"outer": {"inner": [1, 2]}}
 

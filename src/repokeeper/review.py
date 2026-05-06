@@ -119,7 +119,7 @@ def check_review_skip_keywords(pr_data: dict[str, Any], profile: dict[str, Any])
     combined = f"{pr_data['title']} {pr_data['body']}".lower()
     for kw in skip_keywords:
         if kw.lower() in combined:
-            return kw
+            return kw  # type: ignore[no-any-return]
     return None
 
 

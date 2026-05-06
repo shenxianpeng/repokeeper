@@ -381,12 +381,15 @@ def run_agent(
     llm_base_url: str | None = None,
     profile_path: str | Path | None = None,
     dry_run: bool = False,
+    remote_repo: str | None = None,
 ) -> dict[str, Any]:
     """Run the Implementation Agent end-to-end.
 
     Args:
         dry_run: If True, stop after generating the implementation plan
                  and return it without applying changes or creating a PR.
+        remote_repo: If set, the issue is read from the current repository
+                     but the implementation is applied to this remote repository.
 
     Returns:
         Dict with result info (``pr_url``, ``skip`` reason, ``error``,
@@ -456,9 +459,13 @@ def run_agent(
 
     post_comment(issue_obj, "🤖 **RepoKeeper** is analyzing this issue — working on an implementation...")
 
+    # Determine the target repository for implementation
+    target_repo_slug = remote_repo or repository
+    target_repo = gh.get_repo(target_repo_slug)
+
     try:
-        # Collect repo context
-        logger.info("Collecting repository context...")
+        # Collect repo context from the target repository
+        logger.info("Collecting repository context from %s...", target_repo_slug)
         max_context = profile.get("agent", {}).get("max_context_files", 40)
         files = collect_repo_files(max_files=max_context)
         logger.info("Loaded %d files", len(files))
@@ -545,18 +552,18 @@ def run_agent(
 
         # Resolve branch name collisions — append timestamp if branch exists
         branch_name = result.get("branch_name", "repokeeper/unknown")
-        result["branch_name"] = _resolve_branch_collision(branch_name, repo)
+        result["branch_name"] = _resolve_branch_collision(branch_name, target_repo)
 
         # Apply changes and push (gh_token and repository are guaranteed non-None
         # after the validation above, but mypy needs the hint).
         assert gh_token is not None
         assert repository is not None
         branch, changed_files = apply_and_push(
-            result, gh_token, repository, profile
+            result, gh_token, target_repo_slug, profile
         )
 
-        # Create PR
-        pr_url = create_pr(repo, issue_data, result, branch, changed_files, profile)
+        # Create PR on the target repository
+        pr_url = create_pr(target_repo, issue_data, result, branch, changed_files, profile)
 
         cost_note = ""
         if usage.cost_usd > 0:

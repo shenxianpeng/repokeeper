@@ -1,0 +1,62 @@
+name: RepoKeeper Code Review Agent
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  repokeeper-review:
+    runs-on: ubuntu-latest
+    if: |
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.label.name == 'agent-review'
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@repokeeper review') &&
+        (
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      )
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      # Dogfood: install from local checkout so we test the latest source.
+      # Published templates use `pip install repokeeper` for downstream repos.
+      - name: Install local checkout
+        run: pip install -e .
+
+      - name: Get PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run RepoKeeper Review
+        env:
+          PYTHONUNBUFFERED: 1
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+        run: repokeeper review --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"

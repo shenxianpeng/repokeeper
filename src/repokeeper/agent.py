@@ -380,11 +380,17 @@ def run_agent(
     llm_api_key: str | None = None,
     llm_base_url: str | None = None,
     profile_path: str | Path | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Run the Implementation Agent end-to-end.
 
+    Args:
+        dry_run: If True, stop after generating the implementation plan
+                 and return it without applying changes or creating a PR.
+
     Returns:
-        Dict with result info (``pr_url``, ``skip`` reason, ``error``).
+        Dict with result info (``pr_url``, ``skip`` reason, ``error``,
+        and ``plan`` when dry_run=True).
     """
     gh_token = (
         gh_token
@@ -515,6 +521,27 @@ def run_agent(
             }
 
         logger.info("Plan: %s", result["summary"])
+
+        if dry_run:
+            logger.info("Dry-run mode — skipping apply and PR creation")
+            plan_detail = {
+                "branch_name": result.get("branch_name", "repokeeper/unknown"),
+                "commit_message": result.get("commit_message", ""),
+                "summary": result.get("summary", ""),
+                "changes": list(result.get("changes", {}).keys()),
+                "new_files": list(result.get("new_files", {}).keys()),
+            }
+            post_comment(
+                issue_obj,
+                f"🤖 **RepoKeeper** dry-run plan:\n\n"
+                f"**Branch:** `{plan_detail['branch_name']}`\n"
+                f"**Commit:** {plan_detail['commit_message']}\n"
+                f"**Summary:** {plan_detail['summary']}\n"
+                f"**Files to modify:** {', '.join(plan_detail['changes']) or '(none)'}\n"
+                f"**Files to create:** {', '.join(plan_detail['new_files']) or '(none)'}\n\n"
+                f"*No changes were applied. Use `@repokeeper go` or `agent-todo` label to implement.*",
+            )
+            return {"skip": True, "reason": "dry-run", "pr_url": None, "plan": plan_detail}
 
         # Resolve branch name collisions — append timestamp if branch exists
         branch_name = result.get("branch_name", "repokeeper/unknown")

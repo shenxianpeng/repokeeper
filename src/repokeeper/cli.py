@@ -144,9 +144,16 @@ def cmd_agent(args: argparse.Namespace) -> int:
         llm_api_key=args.llm_api_key,
         llm_base_url=args.llm_base_url,
         profile_path=args.profile,
+        dry_run=args.dry_run,
     )
     if result.get("skip"):
-        print(f"Skipped: {result.get('reason', '')}")
+        reason = result.get("reason", "")
+        if result.get("plan"):
+            import json as _json
+
+            print(_json.dumps(result["plan"], indent=2))
+        else:
+            print(f"Skipped: {reason}")
         return 0
     print(f"PR created: {result.get('pr_url')}")
     return 0
@@ -333,6 +340,10 @@ def build_parser() -> argparse.ArgumentParser:
     agent = subparsers.add_parser("agent", help="Run Implementation Agent for an issue")
     add_common_remote(agent)
     agent.add_argument("--issue", required=True, type=int, help="GitHub issue number")
+    agent.add_argument(
+        "--dry-run", action="store_true",
+        help="Generate an implementation plan without applying changes or creating a PR",
+    )
     agent.set_defaults(func=cmd_agent)
 
     return parser

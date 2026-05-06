@@ -68,9 +68,12 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "agent": {
         "model": "deepseek-chat",     # deepseek-chat | deepseek-reasoner | gpt-4o | gpt-4o-mini
         "implement": True,            # allow automatic implementation
-        "max_context_files": 40,      # max files to include in LLM context
+        "max_context_files": 60,      # max files to include in LLM context
+        "max_context_tokens": None,   # token budget override (None = auto)
         "temperature": 0.1,           # LLM temperature for code generation
         "skip_keywords": [],          # phrases in issues that trigger auto-skip
+        "smart_file_selection": True, # two-step: LLM picks files, then reads them
+        "max_fix_attempts": 2,        # verification failure retry count (0 = off)
     },
     # ── Radar ──
     "radar": {
@@ -245,8 +248,11 @@ maintainer: your-github-username
 # agent:
 #   model: deepseek-chat      # deepseek-chat | deepseek-reasoner | gpt-4o | gpt-4o-mini
 #   implement: true           # allow automatic PR generation
-#   max_context_files: 40
+#   max_context_files: 60     # max files to send to LLM
+#   max_context_tokens: null  # token budget (null = auto, or e.g. 25000)
 #   temperature: 0.1
+#   smart_file_selection: true  # LLM picks relevant files before implementing
+#   max_fix_attempts: 2       # retry count when verification fails (0 = off)
 #   skip_keywords:            # phrases that trigger auto-skip
 #     - "needs design"
 #     - "breaking change"

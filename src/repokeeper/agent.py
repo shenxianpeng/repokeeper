@@ -8,6 +8,16 @@ generates an implementation plan, submits a PR with a summary.
 
 Uses the Maintainer Profile (Module 4) for code style, tone, PR standards,
 tech stack preferences, and skip keywords.
+
+Supports three context collection strategies (configured via profile):
+
+- **Two-step smart selection** (default): first LLM call lists available
+  files and picks relevant ones; second call implements.
+- **Direct collection**: walks the repo and sends the best N files.
+- **Token-budgeted collection**: same as direct but stops at a token limit.
+
+Also supports a verification fix loop: when pre-push verification fails,
+the errors are fed back to the LLM for up to ``max_fix_attempts`` retries.
 """
 
 from __future__ import annotations
@@ -20,7 +30,11 @@ from typing import Any
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
 
-from repokeeper.exceptions import ConfigError, LLMParseError, PermissionDeniedError
+from repokeeper.exceptions import (
+    ConfigError,
+    LLMParseError,
+    PermissionDeniedError,
+)
 from repokeeper.git_ops import (
     BLOCKED_PREFIXES,  # noqa: F401  # re-export
     apply_and_push,  # noqa: F401  # re-export
@@ -36,6 +50,9 @@ from repokeeper.repo_context import (  # noqa: F401  # re-export
     SOURCE_EXTENSIONS,
     build_context_string,
     collect_repo_files,
+    collect_specific_files,
+    estimate_tokens,
+    list_repo_files,
 )
 from repokeeper.verifier import (  # noqa: F401  # re-export
     VerificationResult,
@@ -198,6 +215,32 @@ Respond with a single valid JSON object — no markdown fences, no explanation o
 - Both can be empty objects if nothing is needed on that side.
 """
 
+SYSTEM_PROMPT_FILE_SELECTION = """\
+You are an expert software engineer. Your task is to identify which files in a
+repository are relevant to a GitHub issue, so that another agent can implement
+the fix using only those files.
+
+Given:
+- A GitHub issue (title + body)
+- A list of all source files in the repository (paths + sizes + extensions)
+
+Select the files that are MOST LIKELY to need changes. Be precise and minimal:
+- Config files (pyproject.toml, package.json, etc.) if the issue is about deps/tooling.
+- Source files that match the module/feature described in the issue.
+- Test files that correspond to the affected source files.
+- README/docs only if the issue is about documentation.
+
+Respond with a single valid JSON object — no markdown fences, no explanation:
+
+{
+  "files": ["path/to/file1.py", "path/to/file2.py"],
+  "reasoning": "One sentence explaining your selection."
+}
+
+- List at most 30 files.
+- Only include files from the provided file list — do not invent paths.
+"""
+
 
 def call_llm(
     issue_data: dict[str, Any],
@@ -306,6 +349,238 @@ def call_llm(
 
     # Unreachable — satisfy type checker
     raise LLMParseError("LLM JSON parsing failed")
+
+
+# ─── Two-step file selection ────────────────────────────────────────────────
+
+
+def smart_select_files(
+    issue_data: dict[str, Any],
+    profile: dict[str, Any],
+    llm_client: LLMClient,
+) -> tuple[dict[str, str], TokenUsage]:
+    """Two-step file selection: list files → LLM picks → read selected.
+
+    Step 1: Send the issue + file listing to the LLM, ask it to pick
+    relevant files.
+    Step 2: Read only the selected files and return their contents.
+
+    Falls back to direct collection if the LLM call fails.
+
+    Args:
+        issue_data: Structured issue data.
+        profile: Maintainer profile dict.
+        llm_client: Unified LLM client.
+
+    Returns:
+        Tuple of (``{path: content}`` dict, token usage).
+    """
+    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    max_context = profile.get("agent", {}).get("max_context_files", 60)
+
+    all_files = list_repo_files()
+    if not all_files:
+        logger.warning("No source files found; falling back to direct collection")
+        return collect_repo_files(max_files=max_context), TokenUsage(model=model)
+
+    logger.info("Smart file selection: %d candidates available", len(all_files))
+
+    # Build a compact file listing (path + size only)
+    listing = "\n".join(
+        f"  {f['path']} ({f['size']} bytes)"
+        for f in all_files
+    )
+
+    selection_prompt = f"""\
+## Issue #{issue_data['number']}: {issue_data['title']}
+
+{issue_data['body']}
+
+## Available files ({len(all_files)} total)
+{listing}
+"""
+
+    total_usage = TokenUsage(model=model)
+
+    try:
+        response = llm_client.chat(
+            system=SYSTEM_PROMPT_FILE_SELECTION,
+            messages=[{"role": "user", "content": selection_prompt}],
+            model=model,
+            temperature=0.0,
+            max_tokens=2000,
+            stream=False,
+        )
+
+        total_usage.prompt_tokens += response.usage.prompt_tokens
+        total_usage.completion_tokens += response.usage.completion_tokens
+        total_usage.total_tokens += response.usage.total_tokens
+        total_usage.cost_usd += response.usage.cost_usd
+
+        selection = parse_llm_json(response.content.strip())
+        selected_paths: list[str] = selection.get("files", [])
+
+        if not selected_paths:
+            logger.warning("LLM selected no files; falling back to direct collection")
+            return collect_repo_files(max_files=max_context), total_usage
+
+        # Limit to max_context_files
+        selected_paths = selected_paths[:max_context]
+        logger.info(
+            "LLM selected %d files (%s), reading content...",
+            len(selected_paths),
+            selection.get("reasoning", "no reasoning provided"),
+        )
+
+        files = collect_specific_files(selected_paths)
+        logger.info("Read %d/%d selected files", len(files), len(selected_paths))
+
+        if not files:
+            logger.warning("None of the selected files could be read; falling back")
+            return collect_repo_files(max_files=max_context), total_usage
+
+        return files, total_usage
+
+    except (LLMParseError, Exception) as exc:
+        logger.warning("Smart file selection failed (%s); falling back to direct collection", exc)
+        return collect_repo_files(max_files=max_context), total_usage
+
+
+# ─── Verification fix loop ─────────────────────────────────────────────────
+
+FIX_SYSTEM_PROMPT = """\
+You are an expert software engineer fixing CI failures in an automated PR.
+Your previous implementation caused verification failures (linter errors
+or test failures). Fix the code so that all checks pass.
+
+Rules:
+- Only fix the actual failures — don't refactor or add features.
+- If a test expectation is wrong (not your code), skip rather than modifying tests.
+- Respond with the SAME JSON format as the original implementation.
+- You may modify the same files again or touch additional files if needed.
+"""
+
+
+def verification_fix_loop(
+    result: dict[str, Any],
+    issue_data: dict[str, Any],
+    profile: dict[str, Any],
+    llm_client: LLMClient,
+    workdir: str | Path = ".",
+) -> tuple[dict[str, Any], TokenUsage, list[str]]:
+    """Run verification and retry fixes up to ``max_fix_attempts`` times.
+
+    After each attempt, verification commands are re-run.  If all pass,
+    the loop exits early.  If ``max_fix_attempts`` is 0, verification is
+    run once without retries (legacy behavior).
+
+    Args:
+        result: Current implementation plan (the ``changes``/``new_files``
+            dicts are updated in-place on each fix attempt).
+        issue_data: Structured issue data.
+        profile: Maintainer profile dict.
+        llm_client: Unified LLM client.
+        workdir: Repository root (for running verification commands).
+
+    Returns:
+        Tuple of ``(updated_result, total_usage, failure_messages)``.
+        ``failure_messages`` is empty on success.
+    """
+    max_attempts = profile.get("agent", {}).get("max_fix_attempts", 2)
+    total_usage = TokenUsage(model=profile.get("agent", {}).get("model", "deepseek-chat"))
+    failure_messages: list[str] = []
+
+    for attempt in range(max_attempts + 1):
+        results = run_verification_commands(profile, Path(workdir))
+        failures = [r for r in results if not r.passed]
+
+        if not failures:
+            logger.info(
+                "Verification passed%s",
+                f" on fix attempt {attempt}" if attempt > 0 else "",
+            )
+            return result, total_usage, []
+
+        failure_msg = format_verification_failures(results)
+        failure_messages.append(failure_msg)
+
+        if attempt >= max_attempts:
+            logger.warning("Verification failed after %d fix attempt(s)", attempt)
+            break
+
+        logger.info(
+            "Verification failed (attempt %d/%d), asking LLM to fix...",
+            attempt + 1, max_attempts,
+        )
+
+        # Build a fix prompt with the failed output
+        style_config = profile.get("style", {})
+        code_style = style_config.get("code_style", "follow existing patterns")
+
+        fix_prompt = f"""\
+## Issue: #{issue_data['number']} - {issue_data['title']}
+
+Your previous implementation caused these verification failures:
+
+{failure_msg}
+
+## Maintainer style preference
+{code_style}
+
+Please fix the implementation. Respond with a corrected JSON object
+(same format as before: skip, reason, summary, branch_name,
+commit_message, changes, new_files).
+"""
+
+        try:
+            response = llm_client.chat(
+                system=FIX_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": fix_prompt}],
+                model=profile.get("agent", {}).get("model", "deepseek-chat"),
+                temperature=profile.get("agent", {}).get("temperature", 0.1),
+                max_tokens=8000,
+                stream=False,
+            )
+
+            total_usage.prompt_tokens += response.usage.prompt_tokens
+            total_usage.completion_tokens += response.usage.completion_tokens
+            total_usage.total_tokens += response.usage.total_tokens
+            total_usage.cost_usd += response.usage.cost_usd
+
+            fixed = parse_llm_json(response.content.strip())
+
+            if fixed.get("skip"):
+                logger.warning("LLM gave up on fix: %s", fixed.get("reason", ""))
+                break
+
+            # Merge the fix into result
+            result.update(fixed)
+            logger.info("Fix attempt %d applied, re-running verification...", attempt + 1)
+
+            # Re-apply changes to disk so verification runs against fixed code
+            from repokeeper.git_ops import safe_repo_path
+
+            for filepath, content in result.get("changes", {}).items():
+                try:
+                    p = safe_repo_path(filepath)
+                except ValueError:
+                    continue
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content, encoding="utf-8")
+
+            for filepath, content in result.get("new_files", {}).items():
+                try:
+                    p = safe_repo_path(filepath)
+                except ValueError:
+                    continue
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content, encoding="utf-8")
+
+        except LLMParseError as exc:
+            logger.warning("Fix LLM response could not be parsed: %s", exc)
+            break
+
+    return result, total_usage, failure_messages
 
 
 # ─── PR creation ─────────────────────────────────────────────────────────────
@@ -458,16 +733,42 @@ def run_agent(
 
     try:
         # Collect repo context
-        logger.info("Collecting repository context...")
-        max_context = profile.get("agent", {}).get("max_context_files", 40)
-        files = collect_repo_files(max_files=max_context)
-        logger.info("Loaded %d files", len(files))
+        agent_config = profile.get("agent", {})
+        use_smart_selection = agent_config.get("smart_file_selection", True)
+        max_context = agent_config.get("max_context_files", 60)
+        token_budget = agent_config.get("max_context_tokens")
+        model = agent_config.get("model", "deepseek-chat")
+
+        selection_usage = TokenUsage(model=model)
+
+        if use_smart_selection:
+            logger.info("Using two-step smart file selection...")
+            files, selection_usage = smart_select_files(issue_data, profile, llm)
+            logger.info("Smart selection: %d files loaded", len(files))
+        else:
+            logger.info("Collecting repository context (max %d files)...", max_context)
+            files = collect_repo_files(
+                max_files=max_context,
+                target_tokens=token_budget,
+            )
+            logger.info("Loaded %d files", len(files))
+
         context_str = build_context_string(files)
+        logger.info(
+            "Context: %d files, ~%d tokens",
+            len(files), estimate_tokens(files),
+        )
 
         # Call LLM
-        model = profile.get("agent", {}).get("model", "deepseek-chat")
         logger.info("Calling LLM (%s)...", model)
-        result, usage = call_llm(issue_data, context_str, profile, llm)
+        result, impl_usage = call_llm(issue_data, context_str, profile, llm)
+
+        # Merge usage from both calls
+        usage = TokenUsage(model=model)
+        usage.prompt_tokens = selection_usage.prompt_tokens + impl_usage.prompt_tokens
+        usage.completion_tokens = selection_usage.completion_tokens + impl_usage.completion_tokens
+        usage.total_tokens = selection_usage.total_tokens + impl_usage.total_tokens
+        usage.cost_usd = selection_usage.cost_usd + impl_usage.cost_usd
 
         # Log token usage
         if usage.total_tokens > 0:
@@ -546,6 +847,51 @@ def run_agent(
         # Resolve branch name collisions — append timestamp if branch exists
         branch_name = result.get("branch_name", "repokeeper/unknown")
         result["branch_name"] = _resolve_branch_collision(branch_name, repo)
+
+        # Apply changes to disk first (so verification can run against them)
+        from repokeeper.git_ops import safe_repo_path
+
+        for filepath, content in result.get("changes", {}).items():
+            try:
+                p = safe_repo_path(filepath)
+            except ValueError:
+                continue
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+
+        for filepath, content in result.get("new_files", {}).items():
+            try:
+                p = safe_repo_path(filepath)
+            except ValueError:
+                continue
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+
+        # ── Verification fix loop ──
+        max_fix_attempts = agent_config.get("max_fix_attempts", 2)
+        if max_fix_attempts >= 0:
+            logger.info("Running verification (max %d fix attempts)...", max_fix_attempts)
+            result, fix_usage, failures = verification_fix_loop(
+                result, issue_data, profile, llm,
+            )
+            usage.prompt_tokens += fix_usage.prompt_tokens
+            usage.completion_tokens += fix_usage.completion_tokens
+            usage.total_tokens += fix_usage.total_tokens
+            usage.cost_usd += fix_usage.cost_usd
+
+            if failures:
+                last_failure = failures[-1]
+                post_comment(
+                    issue_obj,
+                    f"🤖 **RepoKeeper** implemented the changes but verification failed "
+                    f"after {len(failures)} attempt(s):\n\n{last_failure}\n\n"
+                    f"Please review and fix manually.",
+                )
+                return {
+                    "skip": True,
+                    "reason": f"Verification failed after {len(failures)} attempt(s)",
+                    "pr_url": None,
+                }
 
         # Apply changes and push (gh_token and repository are guaranteed non-None
         # after the validation above, but mypy needs the hint).

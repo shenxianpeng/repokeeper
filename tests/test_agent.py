@@ -22,8 +22,10 @@ from repokeeper.agent import (
     get_issue_data,
     run_agent,
     run_verification_commands,
+    smart_select_files,
     strip_blocked_paths,
     validate_implementation,
+    verification_fix_loop,
 )
 from repokeeper.exceptions import (
     ConfigError,
@@ -35,6 +37,11 @@ from repokeeper.exceptions import (
 from repokeeper.git_ops import safe_repo_path
 from repokeeper.llm_client import TokenUsage, parse_llm_json
 from repokeeper.llm_client import _repair_truncated_json as repair_truncated_json
+from repokeeper.repo_context import (
+    collect_specific_files,
+    estimate_tokens,
+    list_repo_files,
+)
 
 # ── Module imports ────────────────────────────────────────────────────────────
 
@@ -894,7 +901,7 @@ def test_run_agent_skip_keyword_matched(monkeypatch):
 def test_run_agent_llm_decides_to_skip(monkeypatch):
     """LLM responds with skip:true."""
     monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
-        "agent": {"implement": True, "skip_keywords": []}
+        "agent": {"implement": True, "skip_keywords": [], "smart_file_selection": False}
     })
 
     issue_obj = MagicMock()
@@ -929,7 +936,7 @@ def test_run_agent_llm_decides_to_skip(monkeypatch):
 def test_run_agent_all_changes_blocked(monkeypatch):
     """When all changes are in blocked paths, skip with explanation."""
     monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
-        "agent": {"implement": True, "skip_keywords": []}
+        "agent": {"implement": True, "skip_keywords": [], "smart_file_selection": False}
     })
 
     issue_obj = MagicMock()
@@ -967,7 +974,7 @@ def test_run_agent_all_changes_blocked(monkeypatch):
 def test_run_agent_validation_fails(monkeypatch):
     """Validation issues cause skip."""
     monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
-        "agent": {"implement": True, "skip_keywords": []},
+        "agent": {"implement": True, "skip_keywords": [], "smart_file_selection": False},
         "pr": {"max_files_per_pr": 1},
     })
 
@@ -1052,7 +1059,8 @@ def test_run_agent_token_fallback(monkeypatch):
 def test_run_agent_success_path(tmp_path, monkeypatch):
     """Happy path: LLM returns a plan, push + PR succeed."""
     monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
-        "agent": {"implement": True, "skip_keywords": []},
+        "agent": {"implement": True, "skip_keywords": [], "smart_file_selection": False,
+                  "max_fix_attempts": -1},
     })
 
     issue_obj = MagicMock()
@@ -1099,7 +1107,7 @@ def test_run_agent_success_path(tmp_path, monkeypatch):
 def test_run_agent_error_handling(monkeypatch):
     """When an exception occurs, error comment is posted and re-raised."""
     monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
-        "agent": {"implement": True, "skip_keywords": []},
+        "agent": {"implement": True, "skip_keywords": [], "smart_file_selection": False},
     })
 
     issue_obj = MagicMock()
@@ -1429,7 +1437,8 @@ def test_collect_repo_files_oserror_trigger(tmp_path, monkeypatch):
 def test_run_agent_blocked_paths_result_and_changes_present(monkeypatch):
     """Some blocked paths but some real changes remain — proceeds."""
     monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
-        "agent": {"implement": True, "skip_keywords": []},
+        "agent": {"implement": True, "skip_keywords": [], "smart_file_selection": False,
+                  "max_fix_attempts": -1},
     })
 
     issue_obj = MagicMock()
@@ -1646,7 +1655,7 @@ def test_run_agent_dry_run(monkeypatch):
     monkeypatch.setattr("repokeeper.agent.build_context_string", lambda f: "ctx")
     monkeypatch.setattr("repokeeper.agent.Github", lambda token: mock_gh)
     monkeypatch.setattr("repokeeper.agent.LLMClient", lambda **kw: MockLLM())
-    monkeypatch.setattr("repokeeper.agent.load_profile", lambda path: {"agent": {"implement": True}})
+    monkeypatch.setattr("repokeeper.agent.load_profile", lambda path: {"agent": {"implement": True, "smart_file_selection": False, "max_fix_attempts": -1}})
 
     result = run_agent(dry_run=True)
 
@@ -1657,3 +1666,520 @@ def test_run_agent_dry_run(monkeypatch):
     assert result["pr_url"] is None
     # Verify we did NOT try to apply_and_push or create_pr
     mock_issue.create_comment.assert_called()
+
+
+# ── New: smart_select_files ─────────────────────────────────────────────────
+
+
+def test_smart_select_files_falls_back_when_no_files(monkeypatch, tmp_path):
+    """When repo has no source files, falls back to direct collection."""
+    monkeypatch.chdir(tmp_path)
+    profile = {"agent": {"model": "deepseek-chat", "max_context_files": 60}}
+    issue_data = {"number": 1, "title": "fix", "body": "nothing here"}
+
+    llm = MagicMock()
+    files, usage = smart_select_files(issue_data, profile, llm)
+    assert files == {}
+    assert usage.total_tokens == 0
+    # LLM was never called
+    llm.chat.assert_not_called()
+
+
+def test_smart_select_files_parse_error_falls_back(monkeypatch, tmp_path):
+    """When LLM returns bad JSON, falls back to direct collection."""
+    monkeypatch.chdir(tmp_path)
+    Path("main.py").write_text("print('hello')")
+
+    profile = {"agent": {"model": "deepseek-chat", "max_context_files": 60}}
+    issue_data = {"number": 1, "title": "fix", "body": "fix main.py"}
+
+    class BadLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": "not json",
+                "usage": TokenUsage(),
+            })()
+
+    llm = BadLLM()
+    files, usage = smart_select_files(issue_data, profile, llm)
+    # Should fall back and find main.py
+    assert len(files) > 0
+
+
+def test_smart_select_files_llm_selects_no_files(monkeypatch, tmp_path):
+    """When LLM selects empty file list, falls back."""
+    monkeypatch.chdir(tmp_path)
+    Path("main.py").write_text("print('hello')")
+
+    profile = {"agent": {"model": "deepseek-chat", "max_context_files": 60}}
+    issue_data = {"number": 1, "title": "fix", "body": "fix main.py"}
+
+    class EmptyLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": '{"files": [], "reasoning": "nothing needed"}',
+                "usage": TokenUsage(),
+            })()
+
+    llm = EmptyLLM()
+    files, usage = smart_select_files(issue_data, profile, llm)
+    # Falls back to direct collection
+    assert len(files) > 0
+
+
+def test_smart_select_files_selects_and_reads_files(monkeypatch, tmp_path):
+    """Happy path: LLM picks files, they are read successfully."""
+    monkeypatch.chdir(tmp_path)
+    Path("src").mkdir()
+    Path("src/main.py").write_text("print('hello')")
+    Path("src/utils.py").write_text("def helper(): pass")
+    Path("README.md").write_text("# My Project")
+
+    profile = {"agent": {"model": "deepseek-chat", "max_context_files": 60}}
+    issue_data = {"number": 1, "title": "fix main", "body": "fix the main module"}
+
+    class SmartLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": '{"files": ["src/main.py", "src/utils.py"], "reasoning": "main module files"}',
+                "usage": TokenUsage(),
+            })()
+
+    llm = SmartLLM()
+    files, usage = smart_select_files(issue_data, profile, llm)
+    assert "src/main.py" in files
+    assert "src/utils.py" in files
+    assert files["src/main.py"] == "print('hello')"
+    # README was not selected
+    assert "README.md" not in files
+
+
+def test_smart_select_files_respects_max_context(monkeypatch, tmp_path):
+    """Selected files are capped at max_context_files."""
+    monkeypatch.chdir(tmp_path)
+    for i in range(20):
+        Path(f"file{i}.py").write_text(f"# file {i}")
+
+    profile = {"agent": {"model": "deepseek-chat", "max_context_files": 5}}
+    issue_data = {"number": 1, "title": "fix", "body": "fix files"}
+
+    selected = [f"file{i}.py" for i in range(20)]
+
+    class ManyLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": json.dumps({"files": selected, "reasoning": "all"}),
+                "usage": TokenUsage(),
+            })()
+
+    llm = ManyLLM()
+    files, usage = smart_select_files(issue_data, profile, llm)
+    # Capped at 5
+    assert len(files) <= 5
+
+
+def test_smart_select_files_unreadable_files_graceful(monkeypatch, tmp_path):
+    """Silently skips files that can't be read (e.g. too large)."""
+    monkeypatch.chdir(tmp_path)
+    Path("good.py").write_text("ok")
+    Path("big.py").write_text("x" * 40_001)  # exceeds MAX_FILE_SIZE
+
+    profile = {"agent": {"model": "deepseek-chat", "max_context_files": 60}}
+    issue_data = {"number": 1, "title": "fix", "body": "fix files"}
+
+    class SelectLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": '{"files": ["good.py", "big.py"], "reasoning": "both"}',
+                "usage": TokenUsage(),
+            })()
+
+    llm = SelectLLM()
+    files, usage = smart_select_files(issue_data, profile, llm)
+    assert "good.py" in files
+    assert "big.py" not in files  # too large
+
+
+# ── New: list_repo_files ────────────────────────────────────────────────────
+
+
+def test_list_repo_files_returns_metadata(monkeypatch, tmp_path):
+    """list_repo_files returns path, size, suffix for each source file."""
+    monkeypatch.chdir(tmp_path)
+    Path("src").mkdir()
+    Path("src/main.py").write_text("hello world")
+    Path("README.md").write_text("# doc")
+    Path("venv").mkdir()
+    Path("venv/lib.py").write_text("skip me")
+
+    entries = list_repo_files()
+    paths = {e["path"] for e in entries}
+    assert "src/main.py" in paths
+    assert "README.md" in paths
+    assert "venv/lib.py" not in paths
+    # Check metadata
+    main = next(e for e in entries if e["path"] == "src/main.py")
+    assert main["suffix"] == ".py"
+    assert main["size"] > 0
+
+
+def test_list_repo_files_sorts_priority_dirs_first(monkeypatch, tmp_path):
+    """Files in src/, lib/ etc. come before root files."""
+    monkeypatch.chdir(tmp_path)
+    Path("root_file.py").write_text("root")
+    Path("src").mkdir()
+    Path("src/main.py").write_text("main")
+    Path("tests").mkdir()
+    Path("tests/test_main.py").write_text("test")
+
+    entries = list_repo_files()
+    paths = [e["path"] for e in entries]
+    # src and tests should come before root files
+    src_idx = paths.index("src/main.py")
+    root_idx = paths.index("root_file.py")
+    assert src_idx < root_idx
+
+
+def test_list_repo_files_skips_large_files(monkeypatch, tmp_path):
+    """Files exceeding MAX_FILE_SIZE are excluded."""
+    monkeypatch.chdir(tmp_path)
+    Path("small.py").write_text("small")
+    Path("big.py").write_text("x" * 40_001)
+
+    entries = list_repo_files()
+    paths = {e["path"] for e in entries}
+    assert "small.py" in paths
+    assert "big.py" not in paths
+
+
+# ── New: collect_specific_files ─────────────────────────────────────────────
+
+
+def test_collect_specific_files_reads_selected(monkeypatch, tmp_path):
+    """Reads content for given file paths, skips invalid ones."""
+    monkeypatch.chdir(tmp_path)
+    Path("a.py").write_text("content a")
+    Path("b.py").write_text("content b")
+
+    files = collect_specific_files(["a.py", "b.py", "nonexistent.py"])
+    assert files == {"a.py": "content a", "b.py": "content b"}
+
+
+def test_collect_specific_files_rejects_traversal(monkeypatch, tmp_path):
+    """Parent traversal and absolute paths are silently skipped."""
+    monkeypatch.chdir(tmp_path)
+    Path("safe.py").write_text("safe")
+
+    files = collect_specific_files(["safe.py", "../escape.py", "/etc/passwd"])
+    assert files == {"safe.py": "safe"}
+
+
+def test_collect_specific_files_skips_too_large(monkeypatch, tmp_path):
+    """Files over MAX_FILE_SIZE are skipped."""
+    monkeypatch.chdir(tmp_path)
+    Path("normal.py").write_text("ok")
+    Path("huge.py").write_text("x" * 40_001)
+
+    files = collect_specific_files(["normal.py", "huge.py"])
+    assert "normal.py" in files
+    assert "huge.py" not in files
+
+
+# ── New: estimate_tokens ────────────────────────────────────────────────────
+
+
+def test_estimate_tokens_approximation():
+    """Token estimation is ~chars/4."""
+    files = {"a.py": "print('hello')"}  # 14 chars + 2 (path) + 30 overhead ≈ 46
+    tokens = estimate_tokens(files)
+    assert tokens > 0
+    # Rough: 14 + 4 + 30 = 48 / 4 = 12
+    assert 8 <= tokens <= 20
+
+
+def test_estimate_tokens_empty():
+    """Empty files dict returns 0."""
+    assert estimate_tokens({}) == 0
+
+
+# ── New: collect_repo_files with token budget ───────────────────────────────
+
+
+def test_collect_repo_files_token_budget(monkeypatch, tmp_path):
+    """With a tight token budget, fewer files are collected."""
+    monkeypatch.chdir(tmp_path)
+    for i in range(20):
+        Path(f"file{i}.py").write_text(f"# file {i}\nprint({i})")
+    Path("README.md").write_text("# Project")
+
+    # No budget: collects all files
+    all_files = collect_repo_files(max_files=60)
+    assert len(all_files) >= 20
+
+    # Tight budget: only config + a few small files
+    tight = collect_repo_files(max_files=60, target_tokens=100)
+    assert len(tight) < len(all_files)
+    assert "README.md" in tight  # priority file always included
+
+
+def test_collect_repo_files_scoring_prefers_configs(monkeypatch, tmp_path):
+    """Config files score higher and appear first."""
+    monkeypatch.chdir(tmp_path)
+    Path("src").mkdir()
+    Path("src/app.py").write_text("app")
+    Path("pyproject.toml").write_text("[project]")
+    Path("random.py").write_text("random")
+
+    files = collect_repo_files(max_files=60)
+    paths = list(files.keys())
+    # pyproject.toml should be first (score 300 + config 200 = 500)
+    # Actually, pyproject.toml gets: config bonus (200) + pyproject.toml bonus (300) = 500
+    # README/config files get 200 each, pyproject.toml gets 300 extra
+    # src/app.py gets 100 (PRIORITY_DIRS)
+    # random.py gets 0
+    assert paths[0] in ("pyproject.toml", "src/app.py")
+
+
+# ── New: verification_fix_loop ──────────────────────────────────────────────
+
+
+def test_verification_fix_loop_passes_immediately(monkeypatch, tmp_path):
+    """When verification passes on first try, returns immediately."""
+    monkeypatch.chdir(tmp_path)
+    profile = {"agent": {"max_fix_attempts": 2, "verify_commands": [["echo", "ok"]]}}
+    issue_data = {"number": 1, "title": "fix", "body": "body"}
+
+    result = {"summary": "done", "branch_name": "repokeeper/x", "commit_message": "fix"}
+
+    llm = MagicMock()
+    updated, usage, failures = verification_fix_loop(
+        result, issue_data, profile, llm, workdir=tmp_path,
+    )
+    assert failures == []
+    assert usage.total_tokens == 0
+    llm.chat.assert_not_called()  # No fix needed
+
+
+def test_verification_fix_loop_retries_on_failure(monkeypatch, tmp_path):
+    """When verification fails, LLM is called to fix, then re-verified."""
+    monkeypatch.chdir(tmp_path)
+
+    call_count = [0]
+
+    class FixLLM:
+        def chat(self, **kwargs):
+            call_count[0] += 1
+            return type("R", (), {
+                "content": '{"skip": false, "summary": "fixed", '
+                           '"branch_name": "repokeeper/x", '
+                           '"commit_message": "fix", "changes": {}}',
+                "usage": TokenUsage(),
+            })()
+
+    llm = FixLLM()
+
+    # First verification fails, second passes (via fix)
+    # We'll use a command that fails on first run but succeeds after "fix"
+    fail_count = [0]
+
+    import repokeeper.agent as agent_module
+
+    def mock_run_verification(profile, repo_path=None):
+        fail_count[0] += 1
+        if fail_count[0] == 1:
+            return [
+                type("R", (), {
+                    "command": ["false"],
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": "lint error",
+                    "passed": False,
+                })()
+            ]
+        return []
+
+    monkeypatch.setattr(agent_module, "run_verification_commands", mock_run_verification)
+    monkeypatch.setattr(agent_module, "format_verification_failures", lambda r: "lint error")
+
+    profile = {"agent": {"max_fix_attempts": 2, "model": "deepseek-chat"}}
+    issue_data = {"number": 1, "title": "fix", "body": "body"}
+    result = {"summary": "done", "branch_name": "repokeeper/x", "commit_message": "fix"}
+
+    updated, usage, failures = verification_fix_loop(
+        result, issue_data, profile, llm, workdir=tmp_path,
+    )
+    assert failures == []
+    assert call_count[0] == 1  # LLM was called once to fix
+
+
+def test_verification_fix_loop_exhausted(monkeypatch, tmp_path):
+    """When verification keeps failing, returns failures after max_attempts."""
+    monkeypatch.chdir(tmp_path)
+
+    call_count = [0]
+
+    class AlwaysFailLLM:
+        def chat(self, **kwargs):
+            call_count[0] += 1
+            return type("R", (), {
+                "content": '{"skip": false, "summary": "try fix", '
+                           '"branch_name": "repokeeper/x", '
+                           '"commit_message": "fix", "changes": {}}',
+                "usage": TokenUsage(),
+            })()
+
+    llm = AlwaysFailLLM()
+
+    import repokeeper.agent as agent_module
+
+    def mock_run_verification(profile, repo_path=None):
+        return [
+            type("R", (), {
+                "command": ["lint"],
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "always fails",
+                "passed": False,
+            })()
+        ]
+
+    monkeypatch.setattr(agent_module, "run_verification_commands", mock_run_verification)
+    monkeypatch.setattr(agent_module, "format_verification_failures", lambda r: "always fails")
+
+    profile = {"agent": {"max_fix_attempts": 1, "model": "deepseek-chat"}}
+    issue_data = {"number": 1, "title": "fix", "body": "body"}
+    result = {"summary": "done", "branch_name": "repokeeper/x", "commit_message": "fix"}
+
+    updated, usage, failures = verification_fix_loop(
+        result, issue_data, profile, llm, workdir=tmp_path,
+    )
+    assert len(failures) == 2  # initial + 1 retry
+    assert call_count[0] == 1  # LLM called once for the fix attempt
+
+
+def test_verification_fix_loop_llm_gives_up(monkeypatch, tmp_path):
+    """When LLM responds with skip:true, the loop stops."""
+    monkeypatch.chdir(tmp_path)
+
+    class GivesUpLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": '{"skip": true, "reason": "cannot fix"}',
+                "usage": TokenUsage(),
+            })()
+
+    llm = GivesUpLLM()
+
+    import repokeeper.agent as agent_module
+
+    def mock_run_verification(profile, repo_path=None):
+        return [
+            type("R", (), {
+                "command": ["lint"],
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "fail",
+                "passed": False,
+            })()
+        ]
+
+    monkeypatch.setattr(agent_module, "run_verification_commands", mock_run_verification)
+    monkeypatch.setattr(agent_module, "format_verification_failures", lambda r: "fail")
+
+    profile = {"agent": {"max_fix_attempts": 2, "model": "deepseek-chat"}}
+    issue_data = {"number": 1, "title": "fix", "body": "body"}
+    result = {"summary": "done", "branch_name": "repokeeper/x", "commit_message": "fix"}
+
+    updated, usage, failures = verification_fix_loop(
+        result, issue_data, profile, llm, workdir=tmp_path,
+    )
+    assert len(failures) == 1  # Only the initial failure, no retry since LLM gave up
+
+
+def test_verification_fix_loop_bad_json_breaks(monkeypatch, tmp_path):
+    """When fix LLM returns bad JSON, the loop stops."""
+    monkeypatch.chdir(tmp_path)
+
+    class BadJSONLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": "not json at all",
+                "usage": TokenUsage(),
+            })()
+
+    llm = BadJSONLLM()
+
+    import repokeeper.agent as agent_module
+
+    def mock_run_verification(profile, repo_path=None):
+        return [
+            type("R", (), {
+                "command": ["lint"],
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "fail",
+                "passed": False,
+            })()
+        ]
+
+    monkeypatch.setattr(agent_module, "run_verification_commands", mock_run_verification)
+    monkeypatch.setattr(agent_module, "format_verification_failures", lambda r: "fail")
+
+    profile = {"agent": {"max_fix_attempts": 2, "model": "deepseek-chat"}}
+    issue_data = {"number": 1, "title": "fix", "body": "body"}
+    result = {"summary": "done", "branch_name": "repokeeper/x", "commit_message": "fix"}
+
+    updated, usage, failures = verification_fix_loop(
+        result, issue_data, profile, llm, workdir=tmp_path,
+    )
+    assert len(failures) == 1  # Stopped after bad JSON
+
+
+def test_verification_fix_loop_applies_changes_to_disk(monkeypatch, tmp_path):
+    """Fix LLM changes are written to disk for re-verification."""
+    monkeypatch.chdir(tmp_path)
+    Path("src").mkdir()
+
+    class FixLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": '{"skip": false, "summary": "fixed", '
+                           '"branch_name": "repokeeper/x", '
+                           '"commit_message": "fix", '
+                           '"changes": {"src/main.py": "fixed content"}}',
+                "usage": TokenUsage(),
+            })()
+
+    llm = FixLLM()
+
+    import repokeeper.agent as agent_module
+
+    fail_count = [0]
+
+    def mock_run_verification(profile, repo_path=None):
+        fail_count[0] += 1
+        if fail_count[0] == 1:
+            return [
+                type("R", (), {
+                    "command": ["lint"],
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": "fail",
+                    "passed": False,
+                })()
+            ]
+        # After fix, check file was written
+        assert Path("src/main.py").read_text() == "fixed content"
+        return []
+
+    monkeypatch.setattr(agent_module, "run_verification_commands", mock_run_verification)
+    monkeypatch.setattr(agent_module, "format_verification_failures", lambda r: "fail")
+
+    profile = {"agent": {"max_fix_attempts": 1, "model": "deepseek-chat"}}
+    issue_data = {"number": 1, "title": "fix", "body": "body"}
+    result = {"summary": "done", "branch_name": "repokeeper/x", "commit_message": "fix"}
+
+    updated, usage, failures = verification_fix_loop(
+        result, issue_data, profile, llm, workdir=tmp_path,
+    )
+    assert failures == []

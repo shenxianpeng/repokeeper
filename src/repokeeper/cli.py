@@ -163,6 +163,77 @@ def _has_env(name: str) -> bool:
     return bool(os.environ.get(name))
 
 
+def _run_remote_checks(token: str, repo_slug: str, failed: int, warnings: int) -> tuple[int, int]:
+    """Verify the GitHub token can access the repository and inspect features.
+
+    Args:
+        token: GitHub personal access token.
+        repo_slug: Repository as ``owner/name``.
+        failed: Current failure counter (mutated via return).
+        warnings: Current warning counter (mutated via return).
+
+    Returns:
+        Updated ``(failed, warnings)`` tuple.
+    """
+    import requests as _requests
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    # 1. Verify token can access the repository
+    try:
+        resp = _requests.get(
+            f"https://api.github.com/repos/{repo_slug}",
+            headers=headers,
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            repo_data = resp.json()
+            _print_check(True, f"Token can access {repo_slug}")
+
+            # 2. Check if Discussions are enabled
+            has_discussions = repo_data.get("has_discussions", False)
+            if has_discussions:
+                _print_check(True, "Discussions enabled")
+            else:
+                _print_check(
+                    False,
+                    "Discussions enabled",
+                    "Radar discussion scanning will be unavailable",
+                    status_if_false="warn",
+                )
+                warnings += 1
+
+        elif resp.status_code == 404:
+            _print_check(False, f"Token can access {repo_slug}", f"404 — repo not found or token lacks access")
+            failed += 1
+            _print_fix("verify the repository slug is correct and the token has repo scope")
+        elif resp.status_code == 401:
+            _print_check(False, f"Token can access {repo_slug}", "401 — token is invalid or expired")
+            failed += 1
+            _print_fix("regenerate the token in GitHub Settings → Developer settings → Personal access tokens")
+        else:
+            _print_check(
+                False,
+                f"Token can access {repo_slug}",
+                f"HTTP {resp.status_code}",
+                status_if_false="warn",
+            )
+            warnings += 1
+    except Exception as exc:
+        _print_check(
+            False,
+            f"Token can access {repo_slug}",
+            f"request failed: {exc}",
+            status_if_false="warn",
+        )
+        warnings += 1
+
+    return failed, warnings
+
+
 def _print_check(ok: bool, label: str, detail: str = "", status_if_false: str = "missing") -> None:
     status = "ok" if ok else status_if_false
     suffix = f" - {detail}" if detail else ""
@@ -271,6 +342,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if not repo_slug:
         failed += 1
         _print_fix("repokeeper doctor --repo owner/name")
+
+    # ── Remote checks (only when token + slug are present) ──
+    if github_token and repo_slug:
+        actual_token = os.environ.get("REPOKEEPER_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+        failed, warnings = _run_remote_checks(actual_token, repo_slug, failed, warnings)
 
     if failed:
         print(f"\nDoctor found {failed} issue(s) and {warnings} warning(s).")

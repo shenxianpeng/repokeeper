@@ -1135,10 +1135,10 @@ def attempt_ci_auto_fix(
         gh_repo = gh_client.get_repo(repo)
 
         git("config", "user.email", "repokeeper[bot]@users.noreply.github.com",
-            check=False, capture=True)
+            check=False, capture=True, cwd=repo_path)
         git("config", "user.name", "repokeeper[bot]",
-            check=False, capture=True)
-        git("checkout", "-b", branch_name, check=False, capture=True)
+            check=False, capture=True, cwd=repo_path)
+        git("checkout", "-b", branch_name, check=False, capture=True, cwd=repo_path)
 
         for filepath, content in changes.items():
             try:
@@ -1149,30 +1149,30 @@ def attempt_ci_auto_fix(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-        git("add", "-A", check=False, capture=True)
-        diff_result = git("diff", "--cached", "--name-only", capture=True)
+        git("add", "-A", check=False, capture=True, cwd=repo_path)
+        diff_result = git("diff", "--cached", "--name-only", capture=True, cwd=repo_path)
         if not diff_result.stdout.strip():
             logger.warning("CI auto-fix produced no safe file changes")
             return None
 
         git(
             "commit", "-m", result.get("commit_message", "ci: auto-fix"),
-            check=False, capture=True,
+            check=False, capture=True, cwd=repo_path,
         )
 
         # Push the branch
         gh_token = _get_gh_token_from_client(gh_client)
         if gh_token:
             remote_url = f"https://x-access-token:{gh_token}@github.com/{repo}.git"
-            git("remote", "set-url", "origin", remote_url, check=False, capture=True)
+            git("remote", "set-url", "origin", remote_url, check=False, capture=True, cwd=repo_path)
 
-        push_result = git("push", "origin", branch_name, check=False, capture=True)
+        push_result = git("push", "origin", branch_name, check=False, capture=True, cwd=repo_path)
         if push_result.returncode != 0:
             logger.warning(
                 "CI auto-fix push failed: %s",
                 (push_result.stderr or "")[:200],
             )
-            git("checkout", gh_repo.default_branch, check=False, capture=True)
+            git("checkout", gh_repo.default_branch, check=False, capture=True, cwd=repo_path)
             return None
 
         # Create PR
@@ -1201,7 +1201,7 @@ Repokeeper Patrol diagnosed and attempted to fix a CI failure.
         )
 
         # Return to default branch
-        git("checkout", gh_repo.default_branch, check=False, capture=True)
+        git("checkout", gh_repo.default_branch, check=False, capture=True, cwd=repo_path)
 
         return f"Fixed {failure.workflow_name}: {pr.html_url}"
 

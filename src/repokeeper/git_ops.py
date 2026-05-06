@@ -61,13 +61,14 @@ def safe_repo_path(
     return resolved
 
 
-def git(*args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
+def git(*args: str, check: bool = True, capture: bool = False, cwd: str | Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run a git command and return the completed process.
 
     Args:
         *args: Git subcommand and arguments, e.g. ``git("checkout", "-b", "my-branch")``.
         check: If True, raise on non-zero exit.
         capture: If True, capture stdout/stderr as text.
+        cwd: Working directory for the git command.  Defaults to the current directory.
 
     Returns:
         CompletedProcess with ``stdout`` and ``stderr`` attributes.
@@ -75,6 +76,8 @@ def git(*args: str, check: bool = True, capture: bool = False) -> subprocess.Com
     kwargs: dict = {"check": check}
     if capture:
         kwargs.update({"capture_output": True, "text": True})
+    if cwd is not None:
+        kwargs["cwd"] = str(cwd)
     return subprocess.run(["git", *args], **kwargs)
 
 

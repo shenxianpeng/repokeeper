@@ -4,6 +4,8 @@ All notable changes to RepoKeeper will be documented in this file.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-07
+
 ### Added
 - **Code Review Agent (Module 5).** New `review` module that reads PR diffs and
   source files, checks them against the Maintainer Profile (code style, tech
@@ -11,7 +13,23 @@ All notable changes to RepoKeeper will be documented in this file.
   Triggers via `agent-review` label or `@repokeeper review` comment.
   Includes `repokeeper review` CLI command and `review.yml` workflow template.
   Safety model: RepoKeeper never approves or merges — only provides suggestions.
+  (32 tests, 98% coverage on review module.)
 - New `REVIEW_LABEL = "agent-review"` constant in `collaboration.py`.
+- **Two-step smart file selection.** The Implementation Agent now uses a
+  two-step process for large repos: list all files → LLM selects the relevant
+  subset → read only those files. Controlled by new profile options:
+  `smart_file_selection`, `max_fix_attempts`, and `max_context_tokens`.
+  Includes `list_repo_files()`, `collect_specific_files()`, and
+  `estimate_tokens()` helpers in `repo_context.py`.
+- **Verification fix loop.** When verification (lint/test) fails, the agent now
+  automatically retries with contextual failure output, up to
+  `max_fix_attempts` times, instead of giving up after one attempt.
+- **Dogfooding review workflow.** This repo now runs the review module on its
+  own PRs via `pull_request_target` for secure, self-reviewed development.
+
+### Fixed
+- Added `mypy` type ignore for `check_review_skip_keywords` to match the
+  existing pattern in `agent.py:check_skip_keywords`.
 
 ## [0.9.0] - 2026-05-06
 

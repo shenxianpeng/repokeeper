@@ -2,6 +2,17 @@
 
 All notable changes to RepoKeeper will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Code Review Agent (Module 5).** New `review` module that reads PR diffs and
+  source files, checks them against the Maintainer Profile (code style, tech
+  stack preferences, PR standards), and posts a structured review comment.
+  Triggers via `agent-review` label or `@repokeeper review` comment.
+  Includes `repokeeper review` CLI command and `review.yml` workflow template.
+  Safety model: RepoKeeper never approves or merges — only provides suggestions.
+- New `REVIEW_LABEL = "agent-review"` constant in `collaboration.py`.
+
 ## [0.9.0] - 2026-05-06
 
 ### Added

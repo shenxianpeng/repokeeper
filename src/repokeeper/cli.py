@@ -19,9 +19,10 @@ from .agent import run_agent
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
 from .radar import generate_radar_summary, run_radar
+from .review import run_review
 
 AGENT_WORKFLOW = "repokeeper.yml"
-OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml")
+OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml", "review.yml")
 ALL_WORKFLOWS = (AGENT_WORKFLOW, *OPTIONAL_WORKFLOWS)
 
 
@@ -156,6 +157,25 @@ def cmd_agent(args: argparse.Namespace) -> int:
             print(f"Skipped: {reason}")
         return 0
     print(f"PR created: {result.get('pr_url')}")
+    return 0
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    result = run_review(
+        gh_token=args.github_token,
+        repository=args.repo,
+        pr_number=args.pr,
+        llm_api_key=args.llm_api_key,
+        llm_base_url=args.llm_base_url,
+        profile_path=args.profile,
+    )
+    if result.get("review_posted"):
+        print(
+            f"Review posted: {result.get('approval_recommendation', '?')}, "
+            f"{result.get('issues_count', 0)} issue(s) found"
+        )
+    else:
+        print(f"Review not posted: {result.get('reason', 'unknown')}")
     return 0
 
 
@@ -426,6 +446,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate an implementation plan without applying changes or creating a PR",
     )
     agent.set_defaults(func=cmd_agent)
+
+    review = subparsers.add_parser("review", help="Run Code Review Agent for a PR")
+    add_common_remote(review)
+    review.add_argument("--pr", required=True, type=int, help="GitHub pull request number")
+    review.set_defaults(func=cmd_review)
 
     return parser
 

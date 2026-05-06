@@ -5,6 +5,7 @@ from __future__ import annotations
 CANDIDATE_LABEL = "repokeeper-candidate"
 RADAR_LABEL = "repokeeper-radar"
 PATROL_LABEL = "repokeeper-patrol"
+REVIEW_LABEL = "agent-review"
 AGENT_TODO_LABEL = "agent-todo"
 
 _LABEL_STYLES = {

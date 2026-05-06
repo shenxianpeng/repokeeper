@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from repokeeper.collaboration import AGENT_TODO_LABEL, CANDIDATE_LABEL, PATROL_LABEL
 from repokeeper.patrol import (
     CIFailure,
     DepCheck,
@@ -29,6 +30,7 @@ from repokeeper.patrol import (
     diagnose_ci_failure,
     find_manifests,
     generate_health_summary,
+    publish_stale_issue_candidate,
     run_patrol,
     scan_ci_failures,
     scan_dependencies,
@@ -796,6 +798,8 @@ def test_summarize_stale_issue_summarizes(monkeypatch):
     )
     result = summarize_stale_issue(issue, mock_llm)
     assert "old feature request" in result.summary
+    assert result.suggested_action == "close"
+    assert result.action_reason == "No activity for a year."
 
 
 def test_summarize_stale_issue_llm_error(monkeypatch):
@@ -819,6 +823,37 @@ def test_summarize_stale_issue_llm_error(monkeypatch):
     )
     result = summarize_stale_issue(issue, mock_llm)
     assert "Stale issue" in result.summary
+    assert result.suggested_action == "investigate"
+
+
+def test_publish_stale_issue_candidate_adds_labels_and_comment():
+    issue = StaleIssue(
+        number=7, title="Implement export", url="https://ex.test/issues/7",
+        author="alice", created_at=datetime(2025, 1, 1),
+        last_updated=datetime(2025, 1, 1), days_stale=120,
+        summary="Still valid feature request.",
+        suggested_action="implement",
+        action_reason="The request is actionable and stale.",
+    )
+
+    mock_issue = MagicMock()
+    mock_issue.get_comments.return_value = []
+    mock_repo = MagicMock()
+    mock_repo.get_issue.return_value = mock_issue
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+
+    assert publish_stale_issue_candidate(mock_gh, "owner/repo", issue) is True
+
+    mock_issue.add_to_labels.assert_called_once()
+    labels = mock_issue.add_to_labels.call_args[0]
+    assert CANDIDATE_LABEL in labels
+    assert PATROL_LABEL in labels
+    assert AGENT_TODO_LABEL not in labels
+    mock_issue.create_comment.assert_called_once()
+    comment = mock_issue.create_comment.call_args[0][0]
+    assert "RepoKeeper Candidate" in comment
+    assert "agent-todo" in comment
 
 
 # ── generate_health_summary ───────────────────────────────────────────────────
@@ -844,6 +879,7 @@ def test_generate_health_summary_includes_sections():
     assert "Outdated Dependencies" in summary
     assert "CI Failures" in summary
     assert "Stale Issues" in summary
+    assert "Waiting for Maintainer Approval" in summary
 
 
 def test_generate_health_summary_includes_warnings():
@@ -923,6 +959,37 @@ def test_run_patrol_skips_ci_auto_fix_when_disabled(monkeypatch):
     assert len(report.ci_failures) == 1
     # ci_auto_fix is False, so no auto-fix attempted
     assert len(report.ci_fixed) == 0
+
+
+def test_run_patrol_publishes_implement_stale_issue_candidate(monkeypatch):
+    stale_issue = StaleIssue(
+        number=9, title="Add export", url="https://ex.test/issues/9",
+        author="alice", created_at=datetime(2025, 1, 1),
+        last_updated=datetime(2025, 1, 1), days_stale=120,
+    )
+    monkeypatch.setattr("repokeeper.patrol.scan_dependencies", lambda *a, **kw: [])
+    monkeypatch.setattr("repokeeper.patrol.scan_ci_failures", lambda *a, **kw: [])
+    monkeypatch.setattr("repokeeper.patrol.scan_stale_issues", lambda *a, **kw: [stale_issue])
+
+    def fake_summarize(issue, *args, **kwargs):
+        issue.summary = "Still valid."
+        issue.suggested_action = "implement"
+        return issue
+
+    published: list[StaleIssue] = []
+    monkeypatch.setattr("repokeeper.patrol.summarize_stale_issue", fake_summarize)
+    monkeypatch.setattr(
+        "repokeeper.patrol.publish_stale_issue_candidate",
+        lambda gh, repo, issue: published.append(issue) or True,
+    )
+
+    report = run_patrol(
+        MagicMock(), MagicMock(), "owner/repo",
+        profile={"patrol": {"enabled": True, "stale_days": 90, "ci_auto_fix": False}},
+    )
+
+    assert report.stale_issues[0].suggested_action == "implement"
+    assert published == [stale_issue]
 
 
 # ── create_dependency_upgrade_pr ──────────────────────────────────────────────

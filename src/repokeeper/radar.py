@@ -17,6 +17,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .collaboration import (
+    CANDIDATE_LABEL,
+    RADAR_LABEL,
+    candidate_labels,
+    ensure_github_labels,
+    format_candidate_block,
+)
 from .profile import load_profile
 
 logger = logging.getLogger(__name__)
@@ -900,8 +907,6 @@ def run_radar(
 
 # ─── Branding ─────────────────────────────────────────────────────────────────
 
-RADAR_LABEL = "repokeeper-radar"
-
 # Hidden marker injected into issue bodies for reliable deduplication.
 # Format: <!-- repokeeper-radar:SOURCE_URL -->
 _RADAR_MARKER_PREFIX = "<!-- repokeeper-radar:"
@@ -970,9 +975,20 @@ def _build_radar_issue_body(draft_body: str, hit: RadarHit) -> str:
         f"> **Reported by @{hit.author}** "
         f"in [original {hit.source}]({hit.url})\n"
     )
+    candidate = format_candidate_block(
+        source_module="Radar",
+        recommended_action="implement",
+        confidence=hit.confidence,
+        source_url=hit.url,
+        summary=hit.summary,
+        acceptance=(
+            "The issue is confirmed as actionable and the maintainer explicitly "
+            "approves implementation."
+        ),
+    )
     marker = _radar_marker(hit.url)
 
-    return f"{header}\n{body}\n\n{marker}\n{_REPOKEEPER_FOOTER}"
+    return f"{header}\n{candidate}\n\n{body}\n\n{marker}\n{_REPOKEEPER_FOOTER}"
 
 
 # ─── Deduplication & issue creation ──────────────────────────────────────────
@@ -1036,9 +1052,9 @@ def _create_radar_issue(
 ) -> dict[str, Any]:
     """Create a GitHub issue from a Radar hit.
 
-    Applies the ``repokeeper-radar`` label alongside any category-specific
-    labels.  The body includes a hidden deduplication marker and professional
-    RepoKeeper branding.
+    Applies the ``repokeeper-candidate`` and ``repokeeper-radar`` labels
+    alongside any category-specific labels.  The body includes a hidden
+    deduplication marker and professional RepoKeeper branding.
 
     Args:
         gh_repo: PyGithub Repository object.
@@ -1053,7 +1069,8 @@ def _create_radar_issue(
         RuntimeError: If GitHub refuses to create the issue.
     """
     full_body = _build_radar_issue_body(draft_body, hit)
-    all_labels = list(dict.fromkeys([RADAR_LABEL] + labels))  # dedupe, keep order
+    all_labels = candidate_labels(RADAR_LABEL, labels)
+    ensure_github_labels(gh_repo, all_labels)
 
     try:
         created = gh_repo.create_issue(
@@ -1095,15 +1112,25 @@ def _update_existing_radar_issue(
     Returns:
         Dict with ``issue_number``, ``issue_url``, ``source_url``, ``action``.
     """
+    candidate = format_candidate_block(
+        source_module="Radar",
+        recommended_action="implement",
+        confidence=hit.confidence,
+        source_url=hit.url,
+        summary=hit.summary,
+        acceptance="Maintainer confirms the topic is still actionable.",
+    )
     comment = (
         f"🔭 **RepoKeeper Radar** detected renewed activity on the "
         f"[original {hit.source}]({hit.url}) "
         f"(matched keyword: `{hit.matched_keyword}`).\n\n"
+        f"{candidate}\n\n"
         f"This issue may still be relevant. "
         f"Consider reviewing or updating its status."
     )
 
     try:
+        issue_obj.add_to_labels(CANDIDATE_LABEL, RADAR_LABEL)
         issue_obj.create_comment(comment)
     except Exception as e:
         logger.warning(f"  Failed to add update comment to #{issue_obj.number}: {e}")
@@ -1212,6 +1239,26 @@ def generate_radar_summary(report: RadarReport) -> str:
                 f"- [#{entry['issue_number']}]({entry['issue_url']}) "
                 f"← [source]({entry['source_url']})"
             )
+        lines.append("")
+
+    pending = report.hits or report.issues_created or report.issues_updated
+    if pending:
+        lines.append("## ⏳ Waiting for Maintainer Approval")
+        lines.append("")
+        lines.append(
+            "RepoKeeper will not implement these candidates until a maintainer "
+            "adds `agent-todo` or comments `@repokeeper go`."
+        )
+        lines.append("")
+        if report.issues_created:
+            for entry in report.issues_created:
+                lines.append(f"- [#{entry['issue_number']}]({entry['issue_url']}) — candidate issue")
+        if report.issues_updated:
+            for entry in report.issues_updated:
+                lines.append(f"- [#{entry['issue_number']}]({entry['issue_url']}) — updated candidate")
+        if not report.issues_created and not report.issues_updated and report.hits:
+            for hit in report.hits[:10]:
+                lines.append(f"- [{hit.title}]({hit.url}) — {hit.summary}")
         lines.append("")
 
     return "\n".join(lines)

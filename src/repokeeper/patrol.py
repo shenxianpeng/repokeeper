@@ -19,6 +19,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .collaboration import (
+    AGENT_TODO_LABEL,
+    CANDIDATE_LABEL,
+    PATROL_LABEL,
+    ensure_github_labels,
+    format_candidate_block,
+)
 from .git_ops import safe_repo_path
 from .profile import load_profile
 
@@ -68,6 +75,8 @@ class StaleIssue:
     days_stale: int
     labels: list[str] = field(default_factory=list)
     summary: str = ""
+    suggested_action: str = "investigate"
+    action_reason: str = ""
 
 
 @dataclass
@@ -785,12 +794,70 @@ def summarize_stale_issue(
         result = json.loads(raw)
 
         issue.summary = result.get("summary", f"Stale issue (#{issue.number}): {issue.title}")
+        issue.suggested_action = result.get("suggested_action", "investigate")
+        issue.action_reason = result.get("reason", "")
 
     except Exception as e:
         logger.error(f"Stale summary failed: {e}")
         issue.summary = f"Stale issue (#{issue.number}): {issue.title}"
+        issue.suggested_action = "investigate"
 
     return issue
+
+
+_PATROL_MARKER_PREFIX = "<!-- repokeeper-patrol:"
+_PATROL_MARKER_SUFFIX = "-->"
+
+
+def _patrol_candidate_marker(issue_number: int) -> str:
+    return f"{_PATROL_MARKER_PREFIX}stale-issue:{issue_number}{_PATROL_MARKER_SUFFIX}"
+
+
+def _build_stale_issue_candidate_comment(issue: StaleIssue) -> str:
+    marker = _patrol_candidate_marker(issue.number)
+    block = format_candidate_block(
+        source_module="Patrol",
+        recommended_action=issue.suggested_action,
+        risk="low",
+        source_url=issue.url,
+        summary=issue.summary,
+        acceptance=(
+            "Maintainer confirms the stale issue is still valid and explicitly "
+            "approves implementation."
+        ),
+    )
+    return (
+        f"🔍 **RepoKeeper Patrol** found this stale issue may need action.\n\n"
+        f"{block}\n\n"
+        f"- **Reason:** {issue.action_reason or 'Issue is stale and needs review.'}\n"
+        f"- **Stale for:** {issue.days_stale} days\n\n"
+        f"{marker}"
+    )
+
+
+def publish_stale_issue_candidate(gh_client: Any, repo: str, issue: StaleIssue) -> bool:
+    """Add candidate labels and a Patrol handoff comment to a stale issue."""
+    try:
+        gh_repo = gh_client.get_repo(repo)
+        issue_obj = gh_repo.get_issue(issue.number)
+        labels = [CANDIDATE_LABEL, PATROL_LABEL]
+        labels = [label for label in labels if label != AGENT_TODO_LABEL]
+        ensure_github_labels(gh_repo, labels)
+        issue_obj.add_to_labels(*labels)
+
+        marker = _patrol_candidate_marker(issue.number)
+        comments: Any = getattr(issue_obj, "get_comments", lambda: [])()
+        for comment in comments:
+            if marker in (getattr(comment, "body", "") or ""):
+                logger.info(f"  Patrol candidate already exists for issue #{issue.number}")
+                return False
+
+        issue_obj.create_comment(_build_stale_issue_candidate_comment(issue))
+        logger.info(f"  Published Patrol candidate for issue #{issue.number}")
+        return True
+    except Exception as e:
+        logger.warning(f"  Failed to publish Patrol candidate for issue #{issue.number}: {e}")
+        return False
 
 
 # ─── Health scoring ──────────────────────────────────────────────────────────
@@ -901,8 +968,35 @@ def generate_health_summary(report: PatrolReport, profile: dict) -> str:
         for issue in report.stale_issues[:10]:
             lines.append(
                 f"- [#{issue.number} {issue.title}]({issue.url}) — "
-                f"stale {issue.days_stale}d — {issue.summary}"
+                f"stale {issue.days_stale}d — {issue.summary} "
+                f"(suggested: {issue.suggested_action})"
             )
+        lines.append("")
+
+    pending: list[str] = []
+    for dep in report.outdated_deps:
+        pending.append(f"Review dependency `{dep.name}` upgrade ({dep.severity}).")
+    for ci in report.ci_failures:
+        if ci.auto_fixable:
+            pending.append(f"Approve implementation for CI failure `{ci.workflow_name}`.")
+        else:
+            pending.append(f"Investigate CI failure `{ci.workflow_name}`.")
+    for issue in report.stale_issues:
+        if issue.suggested_action == "implement":
+            pending.append(
+                f"Approve implementation for [#{issue.number} {issue.title}]({issue.url})."
+            )
+
+    if pending:
+        lines.append("## ⏳ Waiting for Maintainer Approval")
+        lines.append("")
+        lines.append(
+            "RepoKeeper will not implement these candidates until a maintainer "
+            "adds `agent-todo` or comments `@repokeeper go`."
+        )
+        lines.append("")
+        for item in pending[:20]:
+            lines.append(f"- {item}")
         lines.append("")
 
     # Warnings
@@ -1230,6 +1324,8 @@ def run_patrol(
     stale = scan_stale_issues(gh_client, repo, stale_days=stale_days)
     for issue in stale:
         summarize_stale_issue(issue, llm_client, model=model)
+        if issue.suggested_action == "implement" and gh_client is not None:
+            publish_stale_issue_candidate(gh_client, repo, issue)
     report.stale_issues = stale
     if stale:
         logger.info(f"  Found {len(stale)} stale issues")

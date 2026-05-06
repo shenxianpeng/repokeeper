@@ -44,6 +44,18 @@ def test_workflow_templates_are_package_data():
     assert templates.joinpath("patrol.yml").is_file()
 
 
+def test_agent_workflow_only_triggers_on_explicit_approval():
+    workflow = (
+        resources.files("repokeeper")
+        .joinpath("templates", "workflows", "repokeeper.yml")
+        .read_text()
+    )
+
+    assert "github.event.label.name == 'agent-todo'" in workflow
+    assert "contains(github.event.comment.body, '@repokeeper go')" in workflow
+    assert "repokeeper-candidate" not in workflow
+
+
 def test_init_refuses_to_overwrite_existing_profile(tmp_path, capsys):
     Path(tmp_path / "repokeeper.yml").write_text("maintainer: alice\n")
 

@@ -510,7 +510,11 @@ def scan_dependencies(repo_path: Path = Path(".")) -> list[DepCheck]:
 # ─── CI failure analysis ─────────────────────────────────────────────────────
 
 def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -> list[CIFailure]:
-    """Scan recent CI workflow runs for failures.
+    """Scan each workflow's latest run for failures.
+
+    Only checks the most recent run per workflow on the default branch.
+    A workflow whose latest run passed is not reported, even if it
+    failed earlier in the time window.
 
     Args:
         gh_client: PyGithub Github instance.
@@ -518,7 +522,7 @@ def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -
         since: Only check runs after this datetime.
 
     Returns:
-        List of CIFailure objects.
+        List of CIFailure objects (one per failed workflow).
     """
     failures: list[CIFailure] = []
 
@@ -530,10 +534,13 @@ def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -
         workflows = gh_repo.get_workflows()
 
         for wf in workflows:
+            # Each workflow's runs are ordered most-recent-first by default.
+            # We only care about the latest run within the time window.
             runs = wf.get_runs(branch=gh_repo.default_branch)
             for run in runs:
-                if run.created_at.replace(tzinfo=timezone.utc) < since:
-                    continue
+                run_time = run.created_at.replace(tzinfo=timezone.utc)
+                if run_time < since:
+                    break  # older runs are even further back — stop iterating
                 if run.conclusion in ("failure", "cancelled", "timed_out"):
                     failures.append(CIFailure(
                         workflow_name=wf.name,
@@ -542,6 +549,7 @@ def scan_ci_failures(gh_client: Any, repo: str, since: datetime | None = None) -
                         failed_at=run.created_at,
                         conclusion=run.conclusion,
                     ))
+                break  # only check the latest run
     except Exception as e:
         logger.warning(f"CI scan failed for {repo}: {e}")
 
@@ -613,6 +621,8 @@ def _fetch_ci_log_snippet(
                 lines.append(f"  [{job_conclusion}] {job_name} (status: {job_status})")
 
                 steps = job.get("steps", [])
+                failed_steps = [s for s in steps
+                               if s.get("conclusion") in ("failure", "cancelled", "timed_out")]
                 for step in steps:
                     step_name = step.get("name", "?")
                     step_conclusion = step.get("conclusion", "unknown")
@@ -622,11 +632,63 @@ def _fetch_ci_log_snippet(
                         lines.append(f"    ✅ Step: {step_name}")
                     else:
                         lines.append(f"    ⏭ Step: {step_name} → {step_conclusion}")
+
+                # Fetch actual log output for failed steps
+                if failed_steps:
+                    job_id = job.get("id")
+                    if job_id:
+                        log_text = _fetch_job_logs(requester, repo, job_id)
+                        if log_text:
+                            lines.append(f"\n  --- Log for job '{job_name}' ---")
+                            lines.append(log_text)
+                            lines.append("  --- End log ---")
     except Exception as e:
         logger.warning(f"Failed to fetch CI job details for run {run_id}: {e}")
         lines.append(f"(Job details unavailable: {e})")
 
     return "\n".join(lines)
+
+
+def _fetch_job_logs(
+    requester: Any,
+    repo: str,
+    job_id: int,
+    max_chars: int = 3000,
+) -> str:
+    """Fetch and truncate the log output for a failed CI job.
+
+    Downloads the raw log text from the GitHub Actions API and returns the
+    tail portion (most likely to contain the actual error).
+
+    Args:
+        requester: PyGithub Requester instance.
+        repo: Repository slug (owner/repo).
+        job_id: The GitHub Actions job ID.
+        max_chars: Maximum characters to include.
+
+    Returns:
+        Truncated log text, or empty string on failure.
+    """
+    try:
+        _headers, data = requester.requestJsonAndCheck(
+            "GET", f"/repos/{repo}/actions/jobs/{job_id}/logs",
+        )
+        # The logs endpoint returns the raw text body, but requestJsonAndCheck
+        # may wrap it depending on content-type. Handle both cases.
+        if isinstance(data, str):
+            text = data
+        elif isinstance(data, dict):
+            text = data.get("message", "") or str(data)
+        else:
+            return ""
+
+        if len(text) > max_chars:
+            # Keep the tail — errors are usually at the end
+            text = "...(truncated)...\n" + text[-(max_chars - 20):]
+        return text
+    except Exception as e:
+        logger.debug(f"Failed to fetch job logs for job {job_id}: {e}")
+        return ""
 
 
 def diagnose_ci_failure(
@@ -930,7 +992,9 @@ def generate_health_summary(report: PatrolReport, profile: dict) -> str:
     # Dependencies
     if report.outdated_deps:
         lines.append("## 📦 Outdated Dependencies")
-        lines.append(f"_{report.dependencies_checked} checked, {len(report.outdated_deps)} outdated_")
+        manifest_plural = "s" if report.dependencies_checked != 1 else ""
+        dep_plural = "s" if len(report.outdated_deps) != 1 else ""
+        lines.append(f"_{len(report.outdated_deps)} outdated dep{dep_plural} across {report.dependencies_checked} manifest{manifest_plural}_")
         lines.append("")
         lines.append("| Package | Current | Latest | Severity |")
         lines.append("|---------|---------|--------|----------|")

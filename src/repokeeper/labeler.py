@@ -802,6 +802,7 @@ def label_single_issue(
     repo: str,
     issue_number: int,
     profile: dict,
+    repo_labels: list[dict[str, str]] | None = None,
 ) -> LabelerResult:
     """Label a single GitHub issue.
 
@@ -818,11 +819,13 @@ def label_single_issue(
         repo: Repository slug (owner/repo).
         issue_number: Issue number to label.
         profile: Maintainer profile.
+        repo_labels: Pre-fetched repo labels (avoids re-fetching in batch mode).
 
     Returns:
         LabelerResult describing what happened.
     """
-    return _label_single(gh_client, llm_client, repo, issue_number, None, profile)
+    return _label_single(gh_client, llm_client, repo, issue_number, None, profile,
+                         repo_labels=repo_labels)
 
 
 def label_single_pr(
@@ -831,6 +834,7 @@ def label_single_pr(
     repo: str,
     pr_number: int,
     profile: dict,
+    repo_labels: list[dict[str, str]] | None = None,
 ) -> LabelerResult:
     """Label a single GitHub pull request.
 
@@ -843,11 +847,13 @@ def label_single_pr(
         repo: Repository slug (owner/repo).
         pr_number: Pull request number to label.
         profile: Maintainer profile.
+        repo_labels: Pre-fetched repo labels (avoids re-fetching in batch mode).
 
     Returns:
         LabelerResult.
     """
-    return _label_single(gh_client, llm_client, repo, pr_number, pr_number, profile)
+    return _label_single(gh_client, llm_client, repo, pr_number, pr_number, profile,
+                         repo_labels=repo_labels)
 
 
 def _label_single(
@@ -857,8 +863,13 @@ def _label_single(
     issue_number: int,
     pr_number: int | None,
     profile: dict,
+    repo_labels: list[dict[str, str]] | None = None,
 ) -> LabelerResult:
-    """Internal: label a single issue or PR."""
+    """Internal: label a single issue or PR.
+
+    Args:
+        repo_labels: Pre-fetched repo labels. Fetched if None (single-issue mode).
+    """
 
     labeler_config = profile.get("labeler", {})
     mode = labeler_config.get("mode", "add")
@@ -867,8 +878,9 @@ def _label_single(
     model = profile.get("agent", {}).get("model", "deepseek-chat")
     allow_create = labeler_config.get("allow_create_labels", True)
 
-    # Step 0: Fetch repo labels
-    repo_labels = fetch_repo_labels(gh_client, repo)
+    # Step 0: Fetch repo labels (once for batch, per-call for single)
+    if repo_labels is None:
+        repo_labels = fetch_repo_labels(gh_client, repo)
     existing_names = {lb["name"] for lb in repo_labels}
 
     # Step 1: Fetch target data
@@ -999,6 +1011,10 @@ def label_unlabeled_issues(
     exclude = labeler_config.get("exclude_labels", [LABELER_LABEL])
 
     logger.info(f"🏷️ Labeler: finding unlabeled issues in {repo}")
+
+    # Fetch repo labels once for the entire batch
+    repo_labels = fetch_repo_labels(gh_client, repo)
+
     unlabeled = find_unlabeled_issues(
         gh_client, repo, exclude_labels=exclude, max_issues=max_issues,
     )
@@ -1019,6 +1035,7 @@ def label_unlabeled_issues(
         try:
             result = label_single_issue(
                 gh_client, llm_client, repo, issue_data["number"], profile,
+                repo_labels=repo_labels,
             )
         except Exception as e:
             logger.error(f"  Error labeling #{issue_data['number']}: {e}")

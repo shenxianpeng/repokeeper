@@ -24,22 +24,23 @@ Zero config. GitHub-native. ~$0.01 per PR with DeepSeek.
 
 ## Why RepoKeeper?
 
-Open source maintenance is a second job you didn't sign up for. Existing tools help
-*you* write code faster — Copilot, Cursor, Codeium. But what about **everything else**?
-Triaging issues, bumping dependencies, diagnosing CI, responding to the community?
+Open source maintenance is a second job you didn't sign up for. AI coding
+agents like Copilot and Cursor help you write code in the editor. PR Agent
+(Qodo) automates PR workflows. But what about **everything else**? Triaging
+issues, bumping dependencies, diagnosing CI, responding to the community?
 
-> **Copilot helps you write code. RepoKeeper runs your repo while you sleep.**
+> **Copilot codes with you. PR Agent polishes PRs. RepoKeeper runs your repo while you sleep.**
 
-| | Copilot / Cursor | RepoKeeper |
-|---|---|---|
-| What it does | Suggests code as you type | Maintains your repo autonomously |
-| How | Inline completion in editor | Reads issues + codebase → opens PRs |
-| When | While you code | 24/7 on schedule |
-| Community | No | Monitors, classifies, responds |
-| Dependencies | No | Scans for outdated deps, reports upgrade candidates |
-| CI | No | Diagnoses failures, suggests fixes |
-| **Cost** | $10–39/month subscription | **Estimated per-run token cost** with your model/provider |
-| Config | IDE settings | One YAML (or zero) |
+| | Copilot / Cursor | PR Agent (Qodo) | RepoKeeper |
+|---|---|---|---|
+| What it does | AI agent coding in your editor | Automates PR descriptions, reviews, suggestions | Maintains your repo autonomously |
+| How | Reads codebase → implements → verifies | PR lifecycle automation | Reads issues + codebase → opens verified PRs |
+| When | While you code | On PR events | 24/7 on schedule (labels, comments, cron) |
+| Community | No | No | Monitors, classifies, responds |
+| Dependencies | No | No | Scans 8 ecosystems for outdated deps |
+| CI | No | No | Diagnoses failures, suggests fixes |
+| **Cost** | $10–39/month subscription | Free OSS / paid plans | ~$0.01 per PR (your own LLM key) |
+| Config | IDE settings | CLI / PR comments | One YAML (or zero) |
 
 ## What It Does
 

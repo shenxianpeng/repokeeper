@@ -44,8 +44,10 @@ hide:
 
   <section class="rk-band">
     <p>
-      Copilot helps while you are coding. RepoKeeper handles the maintenance
-      queue when you are not.
+      Copilot and Cursor are AI coding agents that work with you in the editor.
+      PR Agent (Qodo) automates PR workflows.
+      RepoKeeper handles the maintenance queue when you are away — triaging,
+      scanning, labeling, and fixing around the clock.
     </p>
   </section>
 
@@ -100,17 +102,17 @@ hide:
   </section>
 
   <section class="rk-panel">
-    <h2>RepoKeeper vs. coding assistants</h2>
+    <h2>RepoKeeper vs. AI coding tools</h2>
     <table class="rk-compare">
       <thead>
-        <tr><th></th><th>Copilot / Cursor</th><th>RepoKeeper</th></tr>
+        <tr><th></th><th>Copilot / Cursor</th><th>PR Agent (Qodo)</th><th>RepoKeeper</th></tr>
       </thead>
       <tbody>
-        <tr><td>Primary job</td><td>Suggest code while you type</td><td>Maintain the repository queue</td></tr>
-        <tr><td>Interface</td><td>Editor session</td><td>Issues, Actions, branches, PRs</td></tr>
-        <tr><td>Timing</td><td>When you are coding</td><td>On labels, comments, and schedules</td></tr>
-        <tr><td>Verification</td><td>Developer-run checks</td><td>Configured pre-PR commands</td></tr>
-        <tr class="rk-highlight"><td>Output</td><td>Inline suggestions</td><td>Reviewable pull requests</td></tr>
+        <tr><td>Primary job</td><td>AI agent coding in your editor</td><td>Automate PR workflows</td><td>Maintain the repository queue</td></tr>
+        <tr><td>Interface</td><td>Editor session</td><td>PR comments, CLI</td><td>Issues, Actions, branches, PRs</td></tr>
+        <tr><td>Timing</td><td>When you are coding</td><td>On PR events</td><td>On labels, comments, and schedules</td></tr>
+        <tr><td>Verification</td><td>Developer-run checks</td><td>AI review &amp; suggestions</td><td>Configured pre-PR commands</td></tr>
+        <tr class="rk-highlight"><td>Output</td><td>Code changes in-editor</td><td>PR descriptions &amp; reviews</td><td>Reviewable pull requests</td></tr>
       </tbody>
     </table>
   </section>

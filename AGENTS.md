@@ -35,6 +35,17 @@ pytest tests/ --cov=repokeeper --cov-report=term-missing
 
 Ensure all tests pass.
 
+## Type Checking
+
+Run mypy before committing. NEVER push code with type errors:
+
+```bash
+mypy src/repokeeper
+```
+
+If there are any type errors, fix them, then run mypy again. Repeat until
+there are **zero** type errors. Only then may you commit and push.
+
 ## Git Rules for Parallel Agents
 
 Multiple agents may work on different files in the same worktree simultaneously. You MUST follow these rules:

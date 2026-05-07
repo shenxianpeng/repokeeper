@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
+from typing import Any
 
 # File extensions considered "source" for LLM context
 SOURCE_EXTENSIONS: set[str] = {
@@ -316,7 +317,7 @@ def collect_repo_files(
 # ── Strategy 2: Two-step smart selection ────────────────────────────────────
 
 
-def list_repo_files() -> list[dict[str, object]]:
+def list_repo_files() -> list[dict[str, Any]]:
     """List all source files with metadata (no content).
 
     Used as input to the first LLM call in the two-step flow, so the
@@ -342,7 +343,7 @@ def list_repo_files() -> list[dict[str, object]]:
 
     all_paths = {path for path, _size, _suffix, _content in candidates}
 
-    entries: list[dict[str, object]] = []
+    entries: list[dict[str, Any]] = []
     for path, size, suffix, content in candidates:
         deps = extract_local_dependencies(path, content, all_paths)
         tests = related_test_paths(path, all_paths)
@@ -359,7 +360,7 @@ def list_repo_files() -> list[dict[str, object]]:
         })
 
     # Sort: priority dirs first, then by path
-    def _sort_key(e: dict[str, object]) -> tuple[int, str]:
+    def _sort_key(e: dict[str, Any]) -> tuple[int, str]:
         p = str(e["path"])
         return (-int(e.get("score", 0)), p)
 
@@ -415,7 +416,7 @@ def expand_context_paths(
     if not selected_paths:
         return {}
 
-    entries = {str(entry["path"]): entry for entry in list_repo_files()}
+    entries: dict[str, dict[str, Any]] = {str(entry["path"]): entry for entry in list_repo_files()}
     expanded: list[str] = []
 
     def add(path: str) -> None:

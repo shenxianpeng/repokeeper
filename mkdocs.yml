@@ -50,6 +50,7 @@ nav:
     - Quick Start: quick-start.md
     - Setup: setup.md
     - Security: security.md
+    - Dogfood Cases: dogfood.md
   - Modules:
     - Community Radar: module-1-radar.md
     - Daily Patrol: module-2-patrol.md

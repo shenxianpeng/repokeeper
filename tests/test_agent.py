@@ -34,14 +34,24 @@ from repokeeper.exceptions import (
     PermissionDeniedError,
     VerificationError,
 )
-from repokeeper.git_ops import safe_repo_path
+from repokeeper.git_ops import (
+    apply_implementation_changes,
+    extract_patch_paths,
+    implementation_file_paths,
+    safe_repo_path,
+)
 from repokeeper.llm_client import TokenUsage, parse_llm_json
 from repokeeper.llm_client import _repair_truncated_json as repair_truncated_json
 from repokeeper.repo_context import (
     collect_specific_files,
+    compress_patch,
     estimate_tokens,
+    expand_context_paths,
+    extract_local_dependencies,
     list_repo_files,
+    related_test_paths,
 )
+from repokeeper.verifier import format_verification_report
 
 # ── Module imports ────────────────────────────────────────────────────────────
 
@@ -507,6 +517,52 @@ def test_strip_blocked_paths_missing_sections():
     assert stripped == []
 
 
+def test_strip_blocked_paths_removes_edits_and_patch():
+    impl = {
+        "edits": [
+            {"path": ".github/workflows/ci.yml", "find": "a", "replace": "b"},
+            {"path": "src/a.py", "find": "a", "replace": "b"},
+        ],
+        "patch": (
+            "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n"
+            "--- a/.github/workflows/ci.yml\n"
+            "+++ b/.github/workflows/ci.yml\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        ),
+    }
+
+    stripped = strip_blocked_paths(impl)
+
+    assert ".github/workflows/ci.yml" in stripped
+    assert impl["edits"] == [{"path": "src/a.py", "find": "a", "replace": "b"}]
+    assert impl["patch"] == ""
+
+
+def test_implementation_file_paths_counts_all_change_modes():
+    impl = {
+        "edits": [{"path": "src/a.py", "find": "old", "replace": "new"}],
+        "changes": {"src/b.py": "content"},
+        "new_files": {"tests/test_b.py": "test"},
+        "patch": (
+            "diff --git a/src/c.py b/src/c.py\n"
+            "--- a/src/c.py\n"
+            "+++ b/src/c.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        ),
+    }
+
+    assert implementation_file_paths(impl) == [
+        "src/a.py",
+        "src/b.py",
+        "src/c.py",
+        "tests/test_b.py",
+    ]
+
+
 # ── safe_repo_path ──────────────────────────────────────────────────────────
 
 def test_safe_repo_path_allows_repo_relative_path(tmp_path):
@@ -597,6 +653,51 @@ def test_apply_and_push_creates_branch_commits_and_pushes(tmp_path, monkeypatch)
     assert result.stdout.strip() == "repokeeper/issue-1-fix"
 
 
+def test_apply_implementation_changes_exact_edits(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    Path("src").mkdir()
+    Path("src/main.py").write_text("def value():\n    return 1\n")
+
+    changed = apply_implementation_changes({
+        "edits": [
+            {
+                "path": "src/main.py",
+                "find": "return 1",
+                "replace": "return 2",
+            }
+        ]
+    })
+
+    assert changed == ["src/main.py"]
+    assert "return 2" in Path("src/main.py").read_text()
+
+
+def test_apply_implementation_changes_patch(tmp_path, monkeypatch):
+    workdir = tmp_path / "repo"
+    _setup_git_repo(workdir)
+    monkeypatch.chdir(workdir)
+    subprocess = __import__("subprocess")
+
+    Path("existing.py").write_text("old\n")
+    subprocess.run(["git", "add", "existing.py"], check=True)
+    subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
+
+    patch = (
+        "diff --git a/existing.py b/existing.py\n"
+        "--- a/existing.py\n"
+        "+++ b/existing.py\n"
+        "@@ -1 +1 @@\n"
+        "-old\n"
+        "+new\n"
+    )
+
+    changed = apply_implementation_changes({"patch": patch})
+
+    assert changed == ["existing.py"]
+    assert Path("existing.py").read_text() == "new\n"
+    assert extract_patch_paths(patch) == ["existing.py"]
+
+
 def test_apply_and_push_no_changes_raises(tmp_path, monkeypatch):
     """If diff is empty after applying, raise RuntimeError."""
     monkeypatch.chdir(tmp_path)
@@ -616,6 +717,40 @@ def test_apply_and_push_no_changes_raises(tmp_path, monkeypatch):
 
     with pytest.raises(GitOperationError, match="Agent produced no file changes"):
         apply_and_push(impl, "token", "owner/repo")
+
+
+def test_apply_and_push_can_commit_already_applied_changes(tmp_path, monkeypatch):
+    workdir = tmp_path / "repo"
+    _setup_git_repo(workdir)
+    monkeypatch.chdir(workdir)
+    subprocess = __import__("subprocess")
+
+    import repokeeper.git_ops as git_ops
+
+    Path("existing.py").write_text("old")
+    subprocess.run(["git", "add", "existing.py"], check=True)
+    subprocess.run(["git", "commit", "-m", "init"], check=True, capture_output=True)
+    Path("existing.py").write_text("new")
+
+    real_git = git_ops.git
+
+    def mock_git(*args, **kwargs):
+        if args and args[0] == "push":
+            return type("CompletedProcess", (), {"stdout": "", "stderr": "", "returncode": 0})()
+        return real_git(*args, **kwargs)
+
+    monkeypatch.setattr(git_ops, "git", mock_git)
+
+    impl = {
+        "branch_name": "repokeeper/issue-1-applied",
+        "commit_message": "fix: applied",
+        "changes": {"existing.py": "would be skipped"},
+    }
+    branch, files = apply_and_push(impl, "token", "owner/repo", already_applied=True)
+
+    assert branch == "repokeeper/issue-1-applied"
+    assert files == ["existing.py"]
+    assert Path("existing.py").read_text() == "new"
 
 
 def test_apply_and_push_blocked_paths_skipped(tmp_path, monkeypatch):
@@ -792,6 +927,8 @@ def test_create_pr_returns_url():
         def create_pull(self, **kwargs):
             assert kwargs["head"] == "repokeeper/test"
             assert "Closes #1" in kwargs["body"]
+            assert "### Verification" in kwargs["body"]
+            assert "### Cost and context" in kwargs["body"]
             return Pull()
 
     url = create_pr(
@@ -801,6 +938,9 @@ def test_create_pr_returns_url():
         "repokeeper/test",
         ["a.py"],
         {},
+        usage=TokenUsage(total_tokens=10, cost_usd=0.1, model="test-model"),
+        context_file_count=2,
+        context_token_estimate=100,
     )
     assert url == "https://example.test/pr/1"
 
@@ -1593,6 +1733,22 @@ def test_format_verification_failures_all_pass():
     assert format_verification_failures(results) == ""
 
 
+def test_format_verification_report_includes_pass_and_failure():
+    from repokeeper.verifier import VerificationResult
+
+    results = [
+        VerificationResult(command=["ruff", "check", "."], returncode=0, stdout="", stderr=""),
+        VerificationResult(command=["pytest"], returncode=1, stdout="failed", stderr=""),
+    ]
+
+    report = format_verification_report(results)
+
+    assert "`ruff check .`" in report
+    assert "`pytest`" in report
+    assert "failed" in report
+    assert "Failure output" in report
+
+
 # ── __version__ fallback ─────────────────────────────────────────────────────
 
 def test_version_package_not_found():
@@ -1754,6 +1910,36 @@ def test_smart_select_files_selects_and_reads_files(monkeypatch, tmp_path):
     assert "README.md" not in files
 
 
+def test_smart_select_files_expands_related_tests(monkeypatch, tmp_path):
+    """Smart selection pulls likely tests for selected source files."""
+    monkeypatch.chdir(tmp_path)
+    Path("src").mkdir()
+    Path("tests").mkdir()
+    Path("src/main.py").write_text("def value(): return 1")
+    Path("tests/test_main.py").write_text("from src.main import value")
+
+    profile = {
+        "agent": {
+            "model": "deepseek-chat",
+            "max_context_files": 10,
+            "context_expansion": True,
+        }
+    }
+    issue_data = {"number": 1, "title": "fix main", "body": "fix value()"}
+
+    class SmartLLM:
+        def chat(self, **kwargs):
+            return type("R", (), {
+                "content": '{"files": ["src/main.py"], "reasoning": "source module"}',
+                "usage": TokenUsage(),
+            })()
+
+    files, usage = smart_select_files(issue_data, profile, SmartLLM())
+
+    assert "src/main.py" in files
+    assert "tests/test_main.py" in files
+
+
 def test_smart_select_files_respects_max_context(monkeypatch, tmp_path):
     """Selected files are capped at max_context_files."""
     monkeypatch.chdir(tmp_path)
@@ -1821,6 +2007,49 @@ def test_list_repo_files_returns_metadata(monkeypatch, tmp_path):
     main = next(e for e in entries if e["path"] == "src/main.py")
     assert main["suffix"] == ".py"
     assert main["size"] > 0
+    assert main["kind"] == "source"
+
+
+def test_context_relationship_helpers(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    Path("src").mkdir()
+    Path("tests").mkdir()
+    Path("src/util.py").write_text("def helper(): return 1")
+    Path("src/main.py").write_text("from src.util import helper\n")
+    Path("tests/test_main.py").write_text("from src.main import helper\n")
+
+    all_paths = {"src/main.py", "src/util.py", "tests/test_main.py"}
+    deps = extract_local_dependencies(
+        "src/main.py",
+        Path("src/main.py").read_text(),
+        all_paths,
+    )
+
+    assert "src/util.py" in deps
+    assert related_test_paths("src/main.py", all_paths) == ["tests/test_main.py"]
+
+    expanded = expand_context_paths(["src/main.py"], max_files=5)
+    assert "src/main.py" in expanded
+    assert "src/util.py" in expanded
+    assert "tests/test_main.py" in expanded
+
+
+def test_compress_patch_preserves_changed_lines():
+    patch = (
+        "diff --git a/a.py b/a.py\n"
+        "--- a/a.py\n"
+        "+++ b/a.py\n"
+        "@@ -1,5 +1,5 @@\n"
+        " context\n" * 100
+        + "-old\n"
+        "+new\n"
+    )
+
+    compressed = compress_patch(patch, max_chars=300)
+
+    assert "compressed diff" in compressed
+    assert "-old" in compressed
+    assert "+new" in compressed
 
 
 def test_list_repo_files_sorts_priority_dirs_first(monkeypatch, tmp_path):

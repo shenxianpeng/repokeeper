@@ -31,6 +31,7 @@ from repokeeper.repo_context import (
     MAX_FILE_SIZE,
     build_context_string,
     collect_repo_files,
+    compress_patch,
     estimate_tokens,
 )
 
@@ -68,7 +69,8 @@ def get_pr_data(repo: Any, pr_number: int) -> dict[str, Any]:
                 "additions": f.additions,
                 "deletions": f.deletions,
                 "changes": f.changes,
-                "patch": f.patch[:MAX_FILE_SIZE] if f.patch else "(binary or too large)",
+                "patch": compress_patch(f.patch, max_chars=MAX_FILE_SIZE)
+                if f.patch else "(binary or too large)",
             }
             for f in files
         ],

@@ -193,3 +193,12 @@ def test_validate_rejects_non_string_model():
         "tone": {"style": "friendly"},
     })
     assert any("agent.model" in i for i in issues)
+
+
+def test_validate_rejects_bad_change_mode():
+    issues = validate_profile({
+        "maintainer": "alice",
+        "agent": {"change_mode": "rewrite_everything"},
+        "tone": {"style": "friendly"},
+    })
+    assert any("change_mode" in i for i in issues)

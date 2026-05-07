@@ -38,6 +38,9 @@ from repokeeper.exceptions import (
 from repokeeper.git_ops import (
     BLOCKED_PREFIXES,  # noqa: F401  # re-export
     apply_and_push,  # noqa: F401  # re-export
+    apply_implementation_changes,
+    extract_patch_paths,
+    implementation_file_paths,
 )
 from repokeeper.git_ops import git as _git  # noqa: F401  # re-export
 from repokeeper.llm_client import LLMClient, TokenUsage, parse_llm_json
@@ -50,14 +53,16 @@ from repokeeper.repo_context import (  # noqa: F401  # re-export
     SOURCE_EXTENSIONS,
     build_context_string,
     collect_repo_files,
-    collect_specific_files,
+    collect_specific_files,  # noqa: F401  # re-export for tests/API compatibility
     estimate_tokens,
+    expand_context_paths,
     list_repo_files,
 )
 from repokeeper.verifier import (  # noqa: F401  # re-export
     VerificationResult,
     discover_verification_commands,
     format_verification_failures,
+    format_verification_report,
     run_verification_commands,
 )
 
@@ -139,10 +144,34 @@ def strip_blocked_paths(implementation: dict[str, Any]) -> list[str]:
     stripped: list[str] = []
     for section in ("changes", "new_files"):
         section_dict = implementation.get(section, {})
+        if not isinstance(section_dict, dict):
+            continue
         blocked = [k for k in section_dict if k.startswith(BLOCKED_PREFIXES)]
         for k in blocked:
             del section_dict[k]
             stripped.append(k)
+
+    edits = implementation.get("edits", [])
+    if isinstance(edits, list):
+        kept_edits = []
+        for edit in edits:
+            path = edit.get("path") if isinstance(edit, dict) else None
+            if isinstance(path, str) and path.startswith(BLOCKED_PREFIXES):
+                stripped.append(path)
+            else:
+                kept_edits.append(edit)
+        implementation["edits"] = kept_edits
+
+    patch = implementation.get("patch") or implementation.get("unified_diff")
+    if isinstance(patch, str) and patch.strip():
+        blocked_patch_paths = [
+            path for path in extract_patch_paths(patch)
+            if path.startswith(BLOCKED_PREFIXES)
+        ]
+        if blocked_patch_paths:
+            stripped.extend(blocked_patch_paths)
+            implementation["patch"] = ""
+            implementation["unified_diff"] = ""
     return stripped
 
 
@@ -164,9 +193,7 @@ def validate_implementation(
 
     # Check max files
     max_files = pr_config.get("max_files_per_pr", 15)
-    total_files = len(implementation.get("changes", {})) + len(
-        implementation.get("new_files", {})
-    )
+    total_files = len(implementation_file_paths(implementation))
     if total_files > max_files:
         issues.append(f"Implementation touches {total_files} files (max: {max_files})")
 
@@ -192,6 +219,8 @@ Rules:
 - If the issue is unclear or unsafe to implement autonomously, set "skip": true and explain why.
 - If the issue body or comments contain any skip keywords from the maintainer, skip.
 - Never modify files under .github/workflows/ (blocked by GitHub security).
+- Prefer exact edit operations or a unified diff over full-file rewrites.
+- Use full-file "changes" only when an exact edit or patch would be unreliable.
 
 Respond with a single valid JSON object — no markdown fences, no explanation outside JSON:
 
@@ -201,8 +230,17 @@ Respond with a single valid JSON object — no markdown fences, no explanation o
   "summary": "One sentence describing what was implemented.",
   "branch_name": "repokeeper/issue-<number>-short-slug",
   "commit_message": "type: short imperative message",
+  "edits": [
+    {
+      "path": "path/to/existing/file.py",
+      "find": "exact existing text to replace",
+      "replace": "replacement text",
+      "replace_all": false
+    }
+  ],
+  "patch": "optional unified diff when exact edits are awkward",
   "changes": {
-    "path/to/existing/file.py": "<complete new file content>"
+    "path/to/existing/file.py": "<complete new file content, fallback only>"
   },
   "new_files": {
     "path/to/new/file.py": "<complete new file content>"
@@ -210,9 +248,11 @@ Respond with a single valid JSON object — no markdown fences, no explanation o
 }
 
 - branch_name must start with "repokeeper/".
-- "changes" = files to modify (provide FULL file content, not diffs).
+- "edits" = exact find/replace edits for existing files. The find text must match exactly.
+- "patch" = unified diff text. Leave it empty if you use edits.
+- "changes" = legacy full-file fallback for existing files. Avoid unless necessary.
 - "new_files" = files to create.
-- Both can be empty objects if nothing is needed on that side.
+- Empty sections must be represented as [] or {} rather than omitted.
 """
 
 SYSTEM_PROMPT_FILE_SELECTION = """\
@@ -229,6 +269,7 @@ Select the files that are MOST LIKELY to need changes. Be precise and minimal:
 - Source files that match the module/feature described in the issue.
 - Test files that correspond to the affected source files.
 - README/docs only if the issue is about documentation.
+- Use the kind, related tests, and local dependency hints when available.
 
 Respond with a single valid JSON object — no markdown fences, no explanation:
 
@@ -269,6 +310,7 @@ def call_llm(
     tech_config = profile.get("tech", {})
     preferred = tech_config.get("preferred", [])
     avoided = tech_config.get("avoid", [])
+    change_mode = profile.get("agent", {}).get("change_mode", "edits")
 
     tech_note = ""
     if preferred:
@@ -287,6 +329,9 @@ def call_llm(
 ## Maintainer style preference
 {code_style}
 {tech_note}
+
+## Preferred change format
+{change_mode}
 
 ## Repository source files
 {context_str}
@@ -377,19 +422,35 @@ def smart_select_files(
     """
     model = profile.get("agent", {}).get("model", "deepseek-chat")
     max_context = profile.get("agent", {}).get("max_context_files", 60)
+    token_budget = profile.get("agent", {}).get("max_context_tokens")
+    expand_context = profile.get("agent", {}).get("context_expansion", True)
 
     all_files = list_repo_files()
     if not all_files:
         logger.warning("No source files found; falling back to direct collection")
-        return collect_repo_files(max_files=max_context), TokenUsage(model=model)
+        return collect_repo_files(max_files=max_context, target_tokens=token_budget), TokenUsage(model=model)
 
     logger.info("Smart file selection: %d candidates available", len(all_files))
 
-    # Build a compact file listing (path + size only)
-    listing = "\n".join(
-        f"  {f['path']} ({f['size']} bytes)"
-        for f in all_files
-    )
+    # Build a compact file listing with relationship hints.
+    listing_parts = []
+    for file_info in all_files:
+        bits = [
+            f"{file_info['path']}",
+            f"kind={file_info.get('kind', 'unknown')}",
+            f"size={file_info['size']}",
+        ]
+        related_tests = file_info.get("related_tests") or []
+        related_sources = file_info.get("related_sources") or []
+        deps = file_info.get("local_dependencies") or []
+        if related_tests:
+            bits.append(f"tests={','.join(str(item) for item in related_tests)}")
+        if related_sources:
+            bits.append(f"sources={','.join(str(item) for item in related_sources)}")
+        if deps:
+            bits.append(f"deps={','.join(str(item) for item in deps)}")
+        listing_parts.append("  - " + " | ".join(bits))
+    listing = "\n".join(listing_parts)
 
     selection_prompt = f"""\
 ## Issue #{issue_data['number']}: {issue_data['title']}
@@ -422,9 +483,9 @@ def smart_select_files(
 
         if not selected_paths:
             logger.warning("LLM selected no files; falling back to direct collection")
-            return collect_repo_files(max_files=max_context), total_usage
+            return collect_repo_files(max_files=max_context, target_tokens=token_budget), total_usage
 
-        # Limit to max_context_files
+        # Limit to max_context_files; relationship expansion below may add tests/deps.
         selected_paths = selected_paths[:max_context]
         logger.info(
             "LLM selected %d files (%s), reading content...",
@@ -432,18 +493,30 @@ def smart_select_files(
             selection.get("reasoning", "no reasoning provided"),
         )
 
-        files = collect_specific_files(selected_paths)
-        logger.info("Read %d/%d selected files", len(files), len(selected_paths))
+        if expand_context:
+            files = expand_context_paths(
+                selected_paths,
+                max_files=max_context,
+                target_tokens=token_budget,
+            )
+            logger.info("Read %d files after test/dependency expansion", len(files))
+        else:
+            files = collect_specific_files(
+                selected_paths,
+                max_files=max_context,
+                target_tokens=token_budget,
+            )
+            logger.info("Read %d selected files", len(files))
 
         if not files:
             logger.warning("None of the selected files could be read; falling back")
-            return collect_repo_files(max_files=max_context), total_usage
+            return collect_repo_files(max_files=max_context, target_tokens=token_budget), total_usage
 
         return files, total_usage
 
     except (LLMParseError, Exception) as exc:
         logger.warning("Smart file selection failed (%s); falling back to direct collection", exc)
-        return collect_repo_files(max_files=max_context), total_usage
+        return collect_repo_files(max_files=max_context, target_tokens=token_budget), total_usage
 
 
 # ─── Verification fix loop ─────────────────────────────────────────────────
@@ -458,6 +531,7 @@ Rules:
 - If a test expectation is wrong (not your code), skip rather than modifying tests.
 - Respond with the SAME JSON format as the original implementation.
 - You may modify the same files again or touch additional files if needed.
+- Prefer exact edits or a unified diff; use full-file changes only as fallback.
 """
 
 
@@ -495,6 +569,7 @@ def verification_fix_loop(
         failures = [r for r in results if not r.passed]
 
         if not failures:
+            result["_verification_results"] = results
             logger.info(
                 "Verification passed%s",
                 f" on fix attempt {attempt}" if attempt > 0 else "",
@@ -502,6 +577,7 @@ def verification_fix_loop(
             return result, total_usage, []
 
         failure_msg = format_verification_failures(results)
+        result["_verification_results"] = results
         failure_messages.append(failure_msg)
 
         if attempt >= max_attempts:
@@ -528,8 +604,8 @@ Your previous implementation caused these verification failures:
 {code_style}
 
 Please fix the implementation. Respond with a corrected JSON object
-(same format as before: skip, reason, summary, branch_name,
-commit_message, changes, new_files).
+(same format as before: skip, reason, summary, branch_name, commit_message,
+edits, patch, changes, new_files). Use empty lists/objects for unused sections.
 """
 
         try:
@@ -554,27 +630,15 @@ commit_message, changes, new_files).
                 break
 
             # Merge the fix into result
+            for key, empty in (("edits", []), ("changes", {}), ("new_files", {})):
+                fixed.setdefault(key, empty)
+            if "patch" not in fixed and "unified_diff" not in fixed:
+                fixed["patch"] = ""
             result.update(fixed)
             logger.info("Fix attempt %d applied, re-running verification...", attempt + 1)
 
             # Re-apply changes to disk so verification runs against fixed code
-            from repokeeper.git_ops import safe_repo_path
-
-            for filepath, content in result.get("changes", {}).items():
-                try:
-                    p = safe_repo_path(filepath)
-                except ValueError:
-                    continue
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(content, encoding="utf-8")
-
-            for filepath, content in result.get("new_files", {}).items():
-                try:
-                    p = safe_repo_path(filepath)
-                except ValueError:
-                    continue
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(content, encoding="utf-8")
+            apply_implementation_changes(result, repo_root=workdir)
 
         except LLMParseError as exc:
             logger.warning("Fix LLM response could not be parsed: %s", exc)
@@ -593,6 +657,10 @@ def create_pr(
     branch: str,
     changed_files: list[str],
     profile: dict[str, Any],
+    verification_results: list[VerificationResult] | None = None,
+    usage: TokenUsage | None = None,
+    context_file_count: int | None = None,
+    context_token_estimate: int | None = None,
 ) -> str:
     """Create a GitHub pull request for the agent's implementation.
 
@@ -603,6 +671,10 @@ def create_pr(
         branch: Branch name.
         changed_files: List of changed file paths.
         profile: Maintainer profile.
+        verification_results: Verification command evidence for the PR body.
+        usage: Optional aggregate token/cost usage.
+        context_file_count: Number of files sent as LLM context.
+        context_token_estimate: Estimated context tokens.
 
     Returns:
         PR URL.
@@ -611,17 +683,54 @@ def create_pr(
         PermissionDeniedError: If GitHub refuses to create the PR (e.g. permissions).
     """
     files_list = "\n".join(f"- `{f}`" for f in changed_files)
+    verification = format_verification_report(verification_results or [])
+    cost_note = "Not available."
+    if usage and usage.total_tokens:
+        cost_note = f"{usage.total_tokens} tokens"
+        if usage.cost_usd > 0:
+            cost_note += f", ~${usage.cost_usd:.6f}"
+        if usage.model:
+            cost_note += f", {usage.model}"
+
+    context_note = "Not recorded."
+    if context_file_count is not None:
+        context_note = f"{context_file_count} files"
+        if context_token_estimate is not None:
+            context_note += f", ~{context_token_estimate} context tokens"
+
+    risk_level = "low"
+    if len(changed_files) > 5:
+        risk_level = "medium"
+    if any(path.startswith(("auth/", "security/", ".github/")) for path in changed_files):
+        risk_level = "high"
+    tests_changed = [path for path in changed_files if "test" in path.lower()]
+    test_note = ", ".join(f"`{path}`" for path in tests_changed) or "No test files changed."
 
     body = f"""\
 ## 🤖 RepoKeeper Implementation
 
 Closes #{issue_data['number']}
 
-### Summary
+### Issue
+{issue_data.get('title', f"#{issue_data['number']}")}
+
+### Plan
 {implementation['summary']}
 
 ### Changed files
 {files_list}
+
+### Verification
+{verification}
+
+### Risk
+- Estimated risk: **{risk_level}**
+- Test coverage touched: {test_note}
+- Human review is still required before merging.
+
+### Cost and context
+- LLM usage: {cost_note}
+- Context: {context_note}
 
 ---
 *Generated by RepoKeeper · Please review carefully before merging.*
@@ -825,12 +934,21 @@ def run_agent(
 
         if dry_run:
             logger.info("Dry-run mode — skipping apply and PR creation")
+            changed_paths = implementation_file_paths(result)
+            patch_paths = extract_patch_paths(result.get("patch", "") or result.get("unified_diff", ""))
             plan_detail = {
                 "branch_name": result.get("branch_name", "repokeeper/unknown"),
                 "commit_message": result.get("commit_message", ""),
                 "summary": result.get("summary", ""),
                 "changes": list(result.get("changes", {}).keys()),
                 "new_files": list(result.get("new_files", {}).keys()),
+                "edits": [
+                    edit.get("path")
+                    for edit in result.get("edits", [])
+                    if isinstance(edit, dict) and edit.get("path")
+                ],
+                "patch_files": patch_paths,
+                "changed_files": changed_paths,
             }
             post_comment(
                 issue_obj,
@@ -838,7 +956,7 @@ def run_agent(
                 f"**Branch:** `{plan_detail['branch_name']}`\n"
                 f"**Commit:** {plan_detail['commit_message']}\n"
                 f"**Summary:** {plan_detail['summary']}\n"
-                f"**Files to modify:** {', '.join(plan_detail['changes']) or '(none)'}\n"
+                f"**Files to edit:** {', '.join(plan_detail['changed_files']) or '(none)'}\n"
                 f"**Files to create:** {', '.join(plan_detail['new_files']) or '(none)'}\n\n"
                 f"*No changes were applied. Use `@repokeeper go` or `agent-todo` label to implement.*",
             )
@@ -848,24 +966,8 @@ def run_agent(
         branch_name = result.get("branch_name", "repokeeper/unknown")
         result["branch_name"] = _resolve_branch_collision(branch_name, repo)
 
-        # Apply changes to disk first (so verification can run against them)
-        from repokeeper.git_ops import safe_repo_path
-
-        for filepath, content in result.get("changes", {}).items():
-            try:
-                p = safe_repo_path(filepath)
-            except ValueError:
-                continue
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
-
-        for filepath, content in result.get("new_files", {}).items():
-            try:
-                p = safe_repo_path(filepath)
-            except ValueError:
-                continue
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
+        # Apply changes to disk first (so verification can run against them).
+        apply_implementation_changes(result)
 
         # ── Verification fix loop ──
         max_fix_attempts = agent_config.get("max_fix_attempts", 2)
@@ -893,16 +995,30 @@ def run_agent(
                     "pr_url": None,
                 }
 
-        # Apply changes and push (gh_token and repository are guaranteed non-None
-        # after the validation above, but mypy needs the hint).
+        verification_results = result.get("_verification_results", [])
+
+        # Stage, commit, and push the already-verified worktree.
         assert gh_token is not None
         assert repository is not None
         branch, changed_files = apply_and_push(
-            result, gh_token, repository, profile
+            result, gh_token, repository, profile,
+            already_applied=True,
+            verify=False,
         )
 
         # Create PR
-        pr_url = create_pr(repo, issue_data, result, branch, changed_files, profile)
+        pr_url = create_pr(
+            repo,
+            issue_data,
+            result,
+            branch,
+            changed_files,
+            profile,
+            verification_results=verification_results,
+            usage=usage,
+            context_file_count=len(files),
+            context_token_estimate=estimate_tokens(files),
+        )
 
         cost_note = ""
         if usage.cost_usd > 0:
@@ -915,7 +1031,9 @@ def run_agent(
             issue_obj,
             f"🤖 **RepoKeeper** finished implementation.\n\n"
             f"**PR:** {pr_url}\n\n"
-            f"**Summary:** {result['summary']}"
+            f"**Summary:** {result['summary']}\n"
+            f"**Changed files:** {', '.join(f'`{f}`' for f in changed_files) or '(none)'}\n"
+            f"**Verification:** {len(verification_results)} command(s) passed"
             f"{cost_note}\n\n"
             f"Please review the changes before merging.",
         )

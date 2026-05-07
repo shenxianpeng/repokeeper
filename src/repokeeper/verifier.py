@@ -17,6 +17,7 @@ from repokeeper.repo_context import SKIP_DIRS
 
 # Seconds before a verification command is killed
 VERIFICATION_TIMEOUT = 600
+OUTPUT_EXCERPT_CHARS = 3000
 
 
 @dataclass
@@ -160,6 +161,53 @@ def run_verification_commands(
     return results
 
 
+def _output_excerpt(result: VerificationResult, max_chars: int = OUTPUT_EXCERPT_CHARS) -> str:
+    """Return a compact stdout/stderr excerpt for one verification result."""
+    output = (result.stdout + "\n" + result.stderr).strip()
+    if not output:
+        return "(no output)"
+    if len(output) <= max_chars:
+        return output
+    return f"[truncated to last {max_chars} chars]\n{output[-max_chars:]}"
+
+
+def summarize_verification_results(results: list[VerificationResult]) -> list[dict[str, object]]:
+    """Return structured verification evidence for PR bodies and comments."""
+    return [
+        {
+            "command": result.display_command,
+            "passed": result.passed,
+            "returncode": result.returncode,
+            "output_excerpt": _output_excerpt(result, max_chars=1200),
+        }
+        for result in results
+    ]
+
+
+def format_verification_report(results: list[VerificationResult]) -> str:
+    """Format all verification results as a compact Markdown report."""
+    if not results:
+        return "Verification was not run."
+
+    rows = ["| Command | Status | Exit |", "|---|---:|---:|"]
+    for result in results:
+        status = "passed" if result.passed else "failed"
+        rows.append(f"| `{result.display_command}` | {status} | {result.returncode} |")
+
+    failed = [result for result in results if not result.passed]
+    if failed:
+        rows.append("")
+        rows.append("<details><summary>Failure output</summary>")
+        for result in failed:
+            rows.append("")
+            rows.append(f"#### `{result.display_command}`")
+            rows.append("")
+            rows.append(f"```text\n{_output_excerpt(result)}\n```")
+        rows.append("</details>")
+
+    return "\n".join(rows)
+
+
 def format_verification_failures(results: list[VerificationResult]) -> str:
     """Format failed verification results for workflow logs and issue comments.
 
@@ -175,12 +223,9 @@ def format_verification_failures(results: list[VerificationResult]) -> str:
 
     parts = ["Verification failed before creating a pull request."]
     for result in failed:
-        output = (result.stdout + "\n" + result.stderr).strip()
-        if len(output) > 3000:
-            output = output[-3000:]
         parts.append(
             f"\nCommand: `{result.display_command}`\n"
             f"Exit code: {result.returncode}\n"
-            f"Output:\n```\n{output or '(no output)'}\n```"
+            f"Output:\n```\n{_output_excerpt(result)}\n```"
         )
     return "\n".join(parts)

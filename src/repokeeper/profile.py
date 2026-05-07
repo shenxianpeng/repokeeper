@@ -73,6 +73,8 @@ DEFAULT_PROFILE: dict[str, Any] = {
         "temperature": 0.1,           # LLM temperature for code generation
         "skip_keywords": [],          # phrases in issues that trigger auto-skip
         "smart_file_selection": True, # two-step: LLM picks files, then reads them
+        "context_expansion": True,    # include likely tests and local deps
+        "change_mode": "edits",       # edits | patch | full_file
         "max_fix_attempts": 2,        # verification failure retry count (0 = off)
     },
     # ── Radar ──
@@ -269,6 +271,8 @@ maintainer: your-github-username
 #   max_context_tokens: null  # token budget (null = auto, or e.g. 25000)
 #   temperature: 0.1
 #   smart_file_selection: true  # LLM picks relevant files before implementing
+#   context_expansion: true     # include related tests and local dependencies
+#   change_mode: edits          # edits | patch | full_file
 #   max_fix_attempts: 2       # retry count when verification fails (0 = off)
 #   skip_keywords:            # phrases that trigger auto-skip
 #     - "needs design"
@@ -380,5 +384,9 @@ def validate_profile(profile: dict) -> list[str]:
     stale = profile.get("patrol", {}).get("stale_days", 90)
     if not isinstance(stale, int) or stale < 1:
         issues.append("patrol.stale_days must be a positive integer")
+
+    change_mode = profile.get("agent", {}).get("change_mode", "edits")
+    if change_mode not in {"edits", "patch", "full_file"}:
+        issues.append("agent.change_mode must be one of {'edits', 'patch', 'full_file'}")
 
     return issues

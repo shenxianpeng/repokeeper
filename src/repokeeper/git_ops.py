@@ -8,11 +8,13 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from repokeeper.exceptions import GitOperationError, VerificationError
 
 # Paths the implementation agent must never modify (GitHub Actions security)
 BLOCKED_PREFIXES = (".github/workflows/",)
+PATCH_FIELDS = ("patch", "unified_diff")
 
 
 def safe_repo_path(
@@ -81,11 +83,201 @@ def git(*args: str, check: bool = True, capture: bool = False, cwd: str | Path |
     return subprocess.run(["git", *args], **kwargs)
 
 
+def _implementation_patch(implementation: dict[str, Any]) -> str:
+    """Return the first non-empty unified diff field from an implementation."""
+    for field in PATCH_FIELDS:
+        patch = implementation.get(field)
+        if isinstance(patch, str) and patch.strip():
+            return patch.strip() + "\n"
+    return ""
+
+
+def _strip_diff_prefix(path: str) -> str:
+    """Normalize a path from a unified diff header."""
+    path = path.strip()
+    if path == "/dev/null":
+        return path
+    if "\t" in path:
+        path = path.split("\t", 1)[0]
+    if path.startswith(("a/", "b/")):
+        return path[2:]
+    return path
+
+
+def extract_patch_paths(patch: str) -> list[str]:
+    """Extract touched repository paths from a unified diff."""
+    paths: set[str] = set()
+    for line in patch.splitlines():
+        if line.startswith("diff --git "):
+            parts = line.split()
+            if len(parts) >= 4:
+                for raw in parts[2:4]:
+                    path = _strip_diff_prefix(raw)
+                    if path != "/dev/null":
+                        paths.add(path)
+        elif line.startswith(("--- ", "+++ ")):
+            path = _strip_diff_prefix(line[4:])
+            if path != "/dev/null":
+                paths.add(path)
+    return sorted(paths)
+
+
+def implementation_file_paths(implementation: dict[str, Any]) -> list[str]:
+    """Return all file paths referenced by an implementation response."""
+    paths: set[str] = set()
+    for section in ("changes", "new_files"):
+        value = implementation.get(section, {})
+        if isinstance(value, dict):
+            paths.update(str(path) for path in value)
+
+    edits = implementation.get("edits", [])
+    if isinstance(edits, list):
+        for edit in edits:
+            if isinstance(edit, dict) and isinstance(edit.get("path"), str):
+                paths.add(edit["path"])
+
+    patch = _implementation_patch(implementation)
+    if patch:
+        paths.update(extract_patch_paths(patch))
+
+    return sorted(paths)
+
+
+def _validate_patch_paths(patch: str, repo_root: str | Path = ".") -> None:
+    """Reject unified diffs that touch unsafe or blocked paths."""
+    for path in extract_patch_paths(patch):
+        safe_repo_path(path, repo_root=repo_root)
+
+
+def apply_unified_patch(patch: str, repo_root: str | Path = ".") -> list[str]:
+    """Apply a unified diff after path and patch validation."""
+    if not patch.strip():
+        return []
+
+    _validate_patch_paths(patch, repo_root)
+    root = Path(repo_root)
+
+    check = subprocess.run(
+        ["git", "apply", "--check", "--whitespace=nowarn"],
+        cwd=root,
+        input=patch,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if check.returncode != 0:
+        output = (check.stdout + "\n" + check.stderr).strip()
+        raise GitOperationError(f"Patch could not be applied:\n{output}")
+
+    applied = subprocess.run(
+        ["git", "apply", "--whitespace=nowarn"],
+        cwd=root,
+        input=patch,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if applied.returncode != 0:
+        output = (applied.stdout + "\n" + applied.stderr).strip()
+        raise GitOperationError(f"Patch apply failed:\n{output}")
+
+    return extract_patch_paths(patch)
+
+
+def _apply_structured_edits(
+    edits: object,
+    repo_root: str | Path = ".",
+) -> list[str]:
+    """Apply exact find/replace edit operations from an implementation."""
+    if not isinstance(edits, list):
+        return []
+
+    changed: list[str] = []
+    for edit in edits:
+        if not isinstance(edit, dict):
+            continue
+        filepath = edit.get("path")
+        find = edit.get("find")
+        replace = edit.get("replace")
+        if not isinstance(filepath, str) or not isinstance(find, str):
+            continue
+        if not isinstance(replace, str):
+            replace = ""
+
+        p = safe_repo_path(filepath, repo_root=repo_root)
+        if not p.exists():
+            raise GitOperationError(f"Cannot edit missing file: {filepath}")
+
+        content = p.read_text(encoding="utf-8")
+        count = content.count(find)
+        if count == 0:
+            raise GitOperationError(f"Edit target not found in {filepath}")
+        if count > 1 and not bool(edit.get("replace_all", False)):
+            raise GitOperationError(
+                f"Edit target is ambiguous in {filepath}; set replace_all=true"
+            )
+
+        new_content = content.replace(find, replace) if edit.get("replace_all") else content.replace(find, replace, 1)
+        p.write_text(new_content, encoding="utf-8")
+        changed.append(filepath)
+
+    return changed
+
+
+def _write_full_file_sections(
+    implementation: dict[str, Any],
+    repo_root: str | Path = ".",
+) -> list[str]:
+    """Write legacy full-file change sections from an implementation."""
+    changed: list[str] = []
+    for section in ("changes", "new_files"):
+        files = implementation.get(section, {})
+        if not isinstance(files, dict):
+            continue
+        for filepath, content in files.items():
+            if not isinstance(filepath, str) or not isinstance(content, str):
+                continue
+            try:
+                p = safe_repo_path(filepath, repo_root=repo_root)
+            except ValueError as exc:
+                print(f"[repokeeper] Skipping unsafe path: {exc}", file=sys.stderr)
+                continue
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            changed.append(filepath)
+    return changed
+
+
+def apply_implementation_changes(
+    implementation: dict[str, Any],
+    repo_root: str | Path = ".",
+) -> list[str]:
+    """Apply patch/tool/full-file changes from an implementation response.
+
+    Preferred order is unified patch, then exact edit operations, then legacy
+    full-file writes.  Keeping the full-file path makes existing workflows and
+    tests compatible while allowing newer prompts to avoid rewriting big files.
+    """
+    changed: list[str] = []
+
+    patch = _implementation_patch(implementation)
+    if patch:
+        changed.extend(apply_unified_patch(patch, repo_root=repo_root))
+
+    changed.extend(_apply_structured_edits(implementation.get("edits", []), repo_root=repo_root))
+    changed.extend(_write_full_file_sections(implementation, repo_root=repo_root))
+
+    return sorted(set(changed))
+
+
 def apply_and_push(
     implementation: dict,
     gh_token: str,
     repository: str,
     profile: dict | None = None,
+    *,
+    already_applied: bool = False,
+    verify: bool = True,
 ) -> tuple[str, list[str]]:
     """Create a branch, apply changes from the LLM response, commit and push.
 
@@ -95,6 +287,8 @@ def apply_and_push(
         gh_token: GitHub token for authentication.
         repository: Repository slug (``owner/repo``).
         profile: Maintainer profile (used for pre-push verification).
+        already_applied: When True, only stage/commit/push current worktree changes.
+        verify: Run verification commands before committing when ``profile`` is set.
 
     Returns:
         Tuple of ``(branch_name, list_of_changed_files)``.
@@ -114,25 +308,8 @@ def apply_and_push(
     git("config", "user.name", "repokeeper[bot]")
     git("checkout", "-b", branch)
 
-    # Write modified files (filter blocked paths)
-    for filepath, content in implementation.get("changes", {}).items():
-        try:
-            p = safe_repo_path(filepath)
-        except ValueError as exc:
-            print(f"[repokeeper] Skipping unsafe path: {exc}", file=sys.stderr)
-            continue
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
-
-    # Write new files (filter blocked paths)
-    for filepath, content in implementation.get("new_files", {}).items():
-        try:
-            p = safe_repo_path(filepath)
-        except ValueError as exc:
-            print(f"[repokeeper] Skipping unsafe path: {exc}", file=sys.stderr)
-            continue
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
+    if not already_applied:
+        apply_implementation_changes(implementation)
 
     git("add", "-A")
 
@@ -141,7 +318,7 @@ def apply_and_push(
     if not diff:
         raise GitOperationError("Agent produced no file changes.")
 
-    if profile is not None:
+    if profile is not None and verify:
         verification_results = run_verification_commands(profile)
         failure_message = format_verification_failures(verification_results)
         if failure_message:

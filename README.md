@@ -161,6 +161,7 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 |---|---|
 | [Quick Start](https://shenxianpeng.github.io/repokeeper/quick-start/) | 5-minute setup |
 | [Security](https://shenxianpeng.github.io/repokeeper/security/) | Permissions, tokens, and automation boundaries |
+| [Dogfood Cases](https://shenxianpeng.github.io/repokeeper/dogfood/) | Public proof template for real RepoKeeper-generated PRs |
 | [Community Radar](https://shenxianpeng.github.io/repokeeper/module-1-radar/) | Monitor your community |
 | [Daily Patrol](https://shenxianpeng.github.io/repokeeper/module-2-patrol/) | Automated health checks |
 | [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |

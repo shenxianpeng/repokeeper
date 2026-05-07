@@ -71,9 +71,14 @@ Complete JSON Schema for `repokeeper.yml`.
 |-----|------|----------|---------|--------------|
 | `model` | string | No | `"deepseek-chat"` | `"deepseek-chat"`, `"deepseek-reasoner"`, `"gpt-4o"`, `"gpt-4o-mini"`, `"claude-sonnet-4-20250514"`, `"claude-3-5-haiku-20241022"` |
 | `implement` | boolean | No | `true` | `true`, `false` |
-| `max_context_files` | integer | No | `40` | 1–100 |
+| `max_context_files` | integer | No | `60` | 1–100 |
+| `max_context_tokens` | integer or null | No | `null` | Any positive integer or `null` |
 | `temperature` | float | No | `0.1` | 0.0–2.0 |
 | `stream` | boolean | No | auto (true locally, false in CI) | `true`, `false` |
+| `smart_file_selection` | boolean | No | `true` | `true`, `false` |
+| `context_expansion` | boolean | No | `true` | `true`, `false` |
+| `change_mode` | string | No | `"edits"` | `"edits"`, `"patch"`, `"full_file"` |
+| `max_fix_attempts` | integer | No | `2` | `-1` to disable, `0+` to retry |
 | `skip_keywords` | list[string] | No | `[]` | Any strings |
 | `verify_commands` | list[string] or boolean | No | auto-detect | Shell-like command strings, command arrays, or `false` |
 

@@ -1,0 +1,72 @@
+name: RepoKeeper Auto-Labeler
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue/PR number to label (leave empty for batch mode)'
+        required: false
+        type: string
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  labeler:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      # This repository dogfoods the checked-out source. Published templates use
+      # `pip install repokeeper` so downstream repos run the latest PyPI release.
+      - name: Install local checkout
+        run: pip install -e .
+
+      - name: Run Auto-Labeler
+        env:
+          PYTHONUNBUFFERED: 1
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
+            repokeeper labeler \
+              --repo "$GITHUB_REPOSITORY" \
+              --issue "${{ github.event.inputs.issue_number }}" \
+              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            repokeeper labeler \
+              --repo "$GITHUB_REPOSITORY" \
+              --pr "${{ github.event.pull_request.number }}" \
+              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ github.event_name }}" = "issues" ]; then
+            repokeeper labeler \
+              --repo "$GITHUB_REPOSITORY" \
+              --issue "${{ github.event.issue.number }}" \
+              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+          else
+            # Batch mode: label all unlabeled open issues
+            repokeeper labeler \
+              --repo "$GITHUB_REPOSITORY" \
+              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload labeler summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: labeler-summary
+          path: labeler-summary.md

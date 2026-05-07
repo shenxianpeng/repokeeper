@@ -55,6 +55,8 @@ nav:
     - Daily Patrol: module-2-patrol.md
     - Implementation Agent: module-3-agent.md
     - Maintainer Profile: module-4-profile.md
+    - Auto-Labeler: module-5-labeler.md
+    - Code Review Agent: module-6-review.md
   - Reference:
     - Changelog: changelog.md
     - Profile Schema: reference/profile-schema.md

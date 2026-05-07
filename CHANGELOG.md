@@ -4,6 +4,28 @@ All notable changes to RepoKeeper will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Auto-Labeler (Module 5).** New `labeler` module that automatically labels
+  GitHub issues and pull requests using AI. Fetches repo labels first, then
+  uses the LLM to pick from existing labels (respecting naming conventions
+  like `area/module` or `type: bug`). Only creates new labels when no suitable
+  existing label exists, matching the description pattern and color palette of
+  existing labels. Supports two modes: `add` (apply directly) and `suggest`
+  (post comment for manual review). Also supports batch mode (all unlabeled
+  open issues).
+  - **Issue labeling**: Classifies issues as bug, feature_request, question,
+    documentation, performance, security, dependencies, and 9 more categories.
+  - **PR labeling**: Considers changed files (diff summary) to determine the
+    PRIMARY purpose. A feature PR that also touches docs gets `enhancement`,
+    not `documentation`.
+  - New `repokeeper labeler` CLI command with `--issue`, `--pr`, `--summary` flags.
+  - New `labeler.yml` workflow template (triggers on `issues: [opened]` and
+    `workflow_dispatch`).
+  - New `repokeeper-labeler` label for tracking.
+  - Profile config: `labeler.enabled`, `.mode`, `.confidence_threshold`,
+    `.max_labels`, `.allow_create_labels`, `.exclude_labels`.
+  (46 tests, 82% coverage on labeler module.)
+
 ## [0.10.0] - 2026-05-07
 
 ### Added

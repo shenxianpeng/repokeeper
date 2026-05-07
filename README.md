@@ -46,6 +46,7 @@ Triaging issues, bumping dependencies, diagnosing CI, responding to the communit
 - **🔭 Community Radar** — Monitors GitHub issues **and discussions** for keywords. AI classifies hits as bugs, feature requests, or noise. **Auto-creates issues** with deduplication and RepoKeeper branding, linking back to original discussions. Notifies you via email, Telegram, or WeChat.
 - **🔍 Daily Patrol** — Scans **8 ecosystems** (pip, npm, Go, Cargo, Bundler, Composer, Maven, Gradle) for outdated deps. Diagnoses CI failures with real job/step data. **Auto-fixes CI** by opening repair PRs. Finds stale issues. Health score every weekday morning.
 - **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. **Streams LLM output** in real-time. **Estimates token cost**. Supports **DeepSeek, OpenAI, and Anthropic Claude** models.
+- **🏷️ Auto-Labeler** — AI classifies new issues and PRs, picks labels from your repo's existing set (matching naming conventions), and creates new labels only when needed — with consistent style and descriptions. Supports issue and PR labeling with diff-aware classification.
 - **👤 Maintainer Profile** — One YAML file describing your code style, tone, PR standards. *Or skip it — defaults work.*
 
 ## Adopt in 60 Seconds
@@ -130,7 +131,7 @@ repokeeper doctor --repo owner/repo
 environment, LLM key, and repository slug. Fix anything marked `missing`, then
 push the workflow.
 
-> Want Radar & Patrol too? Copy [`radar.yml`](src/repokeeper/templates/workflows/radar.yml) and [`patrol.yml`](src/repokeeper/templates/workflows/patrol.yml) into the same `.github/workflows/` folder.
+> Want Radar, Patrol, Labeler, and Review too? Copy [`radar.yml`](src/repokeeper/templates/workflows/radar.yml), [`patrol.yml`](src/repokeeper/templates/workflows/patrol.yml), [`labeler.yml`](src/repokeeper/templates/workflows/labeler.yml), and [`review.yml`](src/repokeeper/templates/workflows/review.yml) into the same `.github/workflows/` folder.
 
 ### 🖥️ CLI
 
@@ -166,6 +167,8 @@ repokeeper doctor --repo owner/repo
 repokeeper radar --repo owner/repo
 repokeeper patrol --repo owner/repo --summary
 repokeeper agent --repo owner/repo --issue 42
+repokeeper labeler --repo owner/repo --issue 42
+repokeeper labeler --repo owner/repo --pr 42
 ```
 
 ---
@@ -181,7 +184,9 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | [Community Radar](https://shenxianpeng.github.io/repokeeper/module-1-radar/) | Monitor your community |
 | [Daily Patrol](https://shenxianpeng.github.io/repokeeper/module-2-patrol/) | Automated health checks |
 | [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |
+| [Auto-Labeler](https://shenxianpeng.github.io/repokeeper/module-5-labeler/) | AI-powered issue & PR labeling |
 | [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
+| [Code Review Agent](https://shenxianpeng.github.io/repokeeper/module-6-review/) | AI code review for PRs |
 
 ## Contributing
 

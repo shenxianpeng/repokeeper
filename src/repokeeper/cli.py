@@ -16,13 +16,14 @@ from repokeeper.llm_client import LLMClient
 
 from . import __version__
 from .agent import run_agent
+from .labeler import generate_labeler_summary, run_labeler
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
 from .radar import generate_radar_summary, run_radar
 from .review import run_review
 
 AGENT_WORKFLOW = "repokeeper.yml"
-OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml", "review.yml")
+OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml", "review.yml", "labeler.yml")
 ALL_WORKFLOWS = (AGENT_WORKFLOW, *OPTIONAL_WORKFLOWS)
 
 
@@ -106,6 +107,23 @@ def cmd_radar(args: argparse.Namespace) -> int:
     print(f"Radar: {len(report.hits)} actionable hits found")
     if args.summary:
         print(generate_radar_summary(report))
+    return 0
+
+
+def cmd_labeler(args: argparse.Namespace) -> int:
+    profile = load_profile(args.profile)
+    gh = _make_github_client(args.github_token)
+    llm = _make_llm_client(args.llm_api_key, args.llm_base_url)
+    report = run_labeler(gh, llm, args.repo, profile,
+                         issue_number=args.issue, pr_number=args.pr)
+    print(
+        f"Labeler: {len(report.labeled)} labeled, "
+        f"{len(report.commented)} suggested, "
+        f"{len(report.skipped)} skipped"
+    )
+    if args.summary:
+        print()
+        print(generate_labeler_summary(report))
     return 0
 
 
@@ -326,6 +344,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         _print_check(True, "Workflow triggers and permissions")
 
+    labeler_workflow = workflows_dir / "labeler.yml"
+    if labeler_workflow.exists():
+        _print_check(True, "Auto-Labeler workflow", str(labeler_workflow))
+    else:
+        _print_check(
+            False, "Auto-Labeler workflow",
+            "copy labeler.yml to enable automatic issue labeling",
+            status_if_false="warn",
+        )
+        warnings += 1
+
     github_token = _has_env("REPOKEEPER_GITHUB_TOKEN") or _has_env("GITHUB_TOKEN")
     _print_check(
         github_token,
@@ -451,6 +480,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_remote(review)
     review.add_argument("--pr", required=True, type=int, help="GitHub pull request number")
     review.set_defaults(func=cmd_review)
+
+    labeler = subparsers.add_parser("labeler", help="Auto-label issues and PRs with AI")
+    add_common_remote(labeler)
+    labeler.add_argument("--issue", type=int, default=None, help="Issue number to label (omit for batch mode)")
+    labeler.add_argument("--pr", type=int, default=None, help="PR number to label")
+    labeler.add_argument("--summary", action="store_true", help="Print markdown summary")
+    labeler.set_defaults(func=cmd_labeler)
 
     return parser
 

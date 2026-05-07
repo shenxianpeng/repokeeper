@@ -92,6 +92,16 @@ DEFAULT_PROFILE: dict[str, Any] = {
         "stale_days": 90,             # days before issue is considered stale
         "ci_auto_fix": True,          # attempt automatic CI fixes
     },
+    # ── Auto-Labeler ──
+    "labeler": {
+        "enabled": True,
+        "mode": "add",               # "add" | "suggest" (comment suggestions)
+        "confidence_threshold": 0.7,  # minimum AI confidence to apply labels
+        "label_map": {},              # category → labels mapping (empty = defaults)
+        "max_labels": 3,              # max labels to apply per issue
+        "allow_create_labels": True,  # allow creating new labels when needed
+        "exclude_labels": [],         # labels to ignore when finding unlabeled issues
+    },
 }
 
 
@@ -280,6 +290,21 @@ maintainer: your-github-username
 #   auto_upgrade_deps: true
 #   stale_days: 90
 #   ci_auto_fix: true
+#
+# ── Auto-Labeler ──
+# labeler:
+#   enabled: true
+#   mode: add                 # "add" = apply labels directly, "suggest" = post comment
+#   confidence_threshold: 0.7
+#   max_labels: 3
+#   allow_create_labels: true # allow creating new labels (with descriptions)
+#   label_map:                # optional: maps AI category to your GitHub labels
+#     bug: ["bug"]
+#     feature_request: ["enhancement"]
+#     question: ["question"]
+#     documentation: ["documentation"]
+#   exclude_labels:           # labels to ignore when finding unlabeled issues
+#     - "repokeeper-labeler"
 #
 # ─────────────────────────────────────
 # Tip: Place this file in the root of each repo.

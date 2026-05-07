@@ -24,7 +24,7 @@ from .collaboration import (
 )
 from .llm_client import parse_llm_json
 from .logs import get_logger
-from .profile import load_profile
+from .profile import get_module_model, load_profile
 
 logger = get_logger("radar")
 
@@ -599,7 +599,7 @@ Follow that with a blank line, then the structured issue description.
             messages=[
                 {"role": "user", "content": user_prompt},
             ],
-            model=profile.get("agent", {}).get("model", "deepseek-chat"),
+            model=get_module_model(profile, "radar"),
             temperature=0.2,
             max_tokens=1500,
         )
@@ -794,7 +794,7 @@ def run_radar(
     cross_repo = radar_config.get("cross_repo_search", False)
 
     confidence_threshold = radar_config.get("confidence_threshold", 0.7)
-    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    model = get_module_model(profile, "radar")
 
     # Step 1: Scan
     if cross_repo:

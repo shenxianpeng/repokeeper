@@ -26,7 +26,7 @@ from github import Github
 from repokeeper.exceptions import ConfigError, LLMParseError
 from repokeeper.llm_client import LLMClient, TokenUsage, parse_llm_json
 from repokeeper.logs import get_logger
-from repokeeper.profile import load_profile
+from repokeeper.profile import get_module_model, load_profile
 from repokeeper.repo_context import (
     MAX_FILE_SIZE,
     build_context_string,
@@ -328,7 +328,7 @@ def call_llm_for_review(
         {"role": "user", "content": user_prompt},
     ]
 
-    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    model = get_module_model(profile, "review")
     temperature = profile.get("agent", {}).get("temperature", 0.1)
     stream = profile.get("agent", {}).get("stream", os.environ.get("CI") is None)
 
@@ -621,7 +621,7 @@ def run_review(
         )
 
         # Call LLM
-        model = profile.get("agent", {}).get("model", "deepseek-chat")
+        model = get_module_model(profile, "review")
         logger.info("Calling LLM for review (%s)...", model)
         review, usage = call_llm_for_review(pr_data, context_str, profile, llm)
 

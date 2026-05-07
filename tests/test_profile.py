@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from repokeeper.profile import load_profile, validate_profile
+from repokeeper.profile import get_module_model, load_profile, validate_profile
 
 
 def test_load_profile_merges_defaults_global_repo_and_env(tmp_path, monkeypatch):
@@ -28,7 +28,7 @@ def test_validate_profile_reports_bad_values():
     issues = validate_profile(
         {
             "maintainer": "",
-            "agent": {"model": "unknown"},
+            "agent": {"model": 123},
             "tone": {"style": "loud"},
             "radar": {"confidence_threshold": 2},
             "patrol": {"schedule": "* * *", "stale_days": 0},
@@ -36,7 +36,7 @@ def test_validate_profile_reports_bad_values():
     )
 
     assert "maintainer must be a non-empty string" in issues
-    assert any("agent.model" in issue for issue in issues)
+    assert any("agent.model" in issue for issue in issues)  # 123 is not a string
     assert any("tone.style" in issue for issue in issues)
     assert any("confidence_threshold" in issue for issue in issues)
     assert any("schedule" in issue for issue in issues)
@@ -142,3 +142,54 @@ def test_apply_env_overrides_nested_new_path(monkeypatch):
     profile = {}
     profile = _apply_env_overrides(profile)
     assert profile["new"]["section"]["key"] == "hello"
+
+
+def test_get_module_model_falls_back_to_agent():
+    """When module.model is None, agent.model is used."""
+    profile = {
+        "agent": {"model": "deepseek-reasoner"},
+        "labeler": {"model": None},
+        "radar": {},
+    }
+    assert get_module_model(profile, "labeler") == "deepseek-reasoner"
+    assert get_module_model(profile, "radar") == "deepseek-reasoner"
+    assert get_module_model(profile, "patrol") == "deepseek-reasoner"
+
+
+def test_get_module_model_per_module_override():
+    """Per-module model takes precedence over agent.model."""
+    profile = {
+        "agent": {"model": "deepseek-chat"},
+        "labeler": {"model": "qwen2.5-coder"},
+        "review": {"model": "deepseek-reasoner"},
+    }
+    assert get_module_model(profile, "labeler") == "qwen2.5-coder"
+    assert get_module_model(profile, "review") == "deepseek-reasoner"
+    # radar has no override, falls back to agent.model
+    assert get_module_model(profile, "radar") == "deepseek-chat"
+
+
+def test_get_module_model_default_hardcoded():
+    """When agent.model is missing, returns deepseek-chat."""
+    profile: dict = {}
+    assert get_module_model(profile, "labeler") == "deepseek-chat"
+
+
+def test_validate_allows_unknown_models():
+    """Unknown models like Ollama are allowed without validation error."""
+    issues = validate_profile({
+        "maintainer": "alice",
+        "agent": {"model": "qwen2.5-coder"},
+        "tone": {"style": "friendly"},
+    })
+    assert not any("agent.model" in i for i in issues)
+
+
+def test_validate_rejects_non_string_model():
+    """Non-string models are rejected."""
+    issues = validate_profile({
+        "maintainer": "alice",
+        "agent": {"model": 42},
+        "tone": {"style": "friendly"},
+    })
+    assert any("agent.model" in i for i in issues)

@@ -23,7 +23,7 @@ from typing import Any
 from .collaboration import LABELER_LABEL
 from .llm_client import parse_llm_json
 from .logs import get_logger
-from .profile import load_profile
+from .profile import get_module_model, load_profile
 
 logger = get_logger("labeler")
 
@@ -875,7 +875,7 @@ def _label_single(
     mode = labeler_config.get("mode", "add")
     confidence_threshold = labeler_config.get("confidence_threshold", 0.7)
     max_labels = labeler_config.get("max_labels", 3)
-    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    model = get_module_model(profile, "labeler")
     allow_create = labeler_config.get("allow_create_labels", True)
 
     # Step 0: Fetch repo labels (once for batch, per-call for single)

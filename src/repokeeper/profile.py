@@ -78,6 +78,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     # ── Radar ──
     "radar": {
         "enabled": True,
+        "model": None,                # per-module model (None = use agent.model)
         "keywords": [],               # watchlist keywords e.g. ["bug", "crash", "security"]
         "confidence_threshold": 0.7,  # minimum AI confidence to act
         "auto_create_issue": False,   # auto-create issues (else draft for approval)
@@ -87,6 +88,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     # ── Patrol ──
     "patrol": {
         "enabled": True,
+        "model": None,                # per-module model (None = use agent.model)
         "schedule": "0 8 * * 1-5",    # cron: 8am weekdays
         "auto_upgrade_deps": True,    # auto-PR for dependency upgrades
         "stale_days": 90,             # days before issue is considered stale
@@ -95,12 +97,17 @@ DEFAULT_PROFILE: dict[str, Any] = {
     # ── Auto-Labeler ──
     "labeler": {
         "enabled": True,
+        "model": None,                # per-module model (None = use agent.model)
         "mode": "add",               # "add" | "suggest" (comment suggestions)
         "confidence_threshold": 0.7,  # minimum AI confidence to apply labels
         "label_map": {},              # category → labels mapping (empty = defaults)
         "max_labels": 3,              # max labels to apply per issue
         "allow_create_labels": True,  # allow creating new labels when needed
         "exclude_labels": [],         # labels to ignore when finding unlabeled issues
+    },
+    # ── Review ──
+    "review": {
+        "model": None,                # per-module model (None = use agent.model)
     },
 }
 
@@ -273,6 +280,7 @@ maintainer: your-github-username
 # ── Community Radar ──
 # radar:
 #   enabled: true
+#   model: qwen2.5-coder      # per-module model (omitted = use agent.model)
 #   keywords:                 # watchlist - Radar scans for these
 #     - bug
 #     - crash
@@ -286,6 +294,7 @@ maintainer: your-github-username
 # ── Daily Patrol ──
 # patrol:
 #   enabled: true
+#   model: deepseek-chat      # per-module model (omitted = use agent.model)
 #   schedule: "0 8 * * 1-5"   # 8am Mon-Fri
 #   auto_upgrade_deps: true
 #   stale_days: 90
@@ -294,6 +303,7 @@ maintainer: your-github-username
 # ── Auto-Labeler ──
 # labeler:
 #   enabled: true
+#   model: qwen2.5-coder      # per-module model (omitted = use agent.model)
 #   mode: add                 # "add" = apply labels directly, "suggest" = post comment
 #   confidence_threshold: 0.7
 #   max_labels: 3
@@ -306,6 +316,10 @@ maintainer: your-github-username
 #   exclude_labels:           # labels to ignore when finding unlabeled issues
 #     - "repokeeper-labeler"
 #
+# ── Code Review ──
+# review:
+#   model: deepseek-reasoner  # per-module model (omitted = use agent.model)
+#
 # ─────────────────────────────────────
 # Tip: Place this file in the root of each repo.
 # Missing keys inherit from ~/.repokeeper/global.yml or built-in defaults.
@@ -316,6 +330,20 @@ maintainer: your-github-username
 
 # ─── Validation ───────────────────────────────────────────────────────────────
 
+def get_module_model(profile: dict, module: str) -> str:
+    """Return the LLM model for a module.
+
+    Resolution order:
+      1. Module-specific model (e.g. ``labeler.model``)
+      2. ``agent.model`` (global fallback)
+      3. ``"deepseek-chat"`` (hardcoded default)
+
+    Set a module's model to ``null`` / omit it to inherit ``agent.model``.
+    """
+    return (profile.get(module, {}).get("model")
+            or profile.get("agent", {}).get("model", "deepseek-chat"))
+
+
 def validate_profile(profile: dict) -> list[str]:
     """Validate a profile and return a list of issues (empty = valid)."""
     issues: list[str] = []
@@ -323,10 +351,15 @@ def validate_profile(profile: dict) -> list[str]:
     if not isinstance(profile.get("maintainer"), str) or not profile.get("maintainer"):
         issues.append("maintainer must be a non-empty string")
 
-    # Validate agent model
-    valid_models = {"deepseek-chat", "deepseek-reasoner", "gpt-4o", "gpt-4o-mini"}
-    if profile.get("agent", {}).get("model") not in valid_models:
-        issues.append(f"agent.model must be one of {valid_models}")
+    # Validate per-module model overrides (fall back to agent.model)
+    known_models = {"deepseek-chat", "deepseek-reasoner", "gpt-4o", "gpt-4o-mini"}
+    for section in ("agent", "labeler", "radar", "patrol", "review"):
+        model = profile.get(section, {}).get("model")
+        if model is not None and not isinstance(model, str):
+            issues.append(f"{section}.model must be a string or null")
+        elif model is not None and model not in known_models:
+            # Allow unknown models (e.g. Ollama), pass silently
+            pass
 
     # Validate tone style
     valid_tones = {"friendly", "formal", "minimal"}

@@ -28,7 +28,7 @@ from .collaboration import (
 from .git_ops import git, safe_repo_path
 from .llm_client import parse_llm_json
 from .logs import get_logger
-from .profile import load_profile
+from .profile import get_module_model, load_profile
 
 logger = get_logger("patrol")
 
@@ -1106,7 +1106,7 @@ def attempt_ci_auto_fix(
 {failure.log_snippet[:2000]}
 """
 
-        model = profile.get("agent", {}).get("model", "deepseek-chat")
+        model = get_module_model(profile, "patrol")
         response = llm_client.chat(
             system=CI_FIX_SYSTEM_PROMPT,
             messages=[
@@ -1263,7 +1263,7 @@ def run_patrol(
         logger.info(f"Patrol disabled for {repo}")
         return PatrolReport(repo=repo, scanned_at=datetime.now())
 
-    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    model = get_module_model(profile, "patrol")
     stale_days = patrol_config.get("stale_days", 90)
     ci_auto_fix = patrol_config.get("ci_auto_fix", True)
 

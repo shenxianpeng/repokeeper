@@ -299,7 +299,7 @@ def _workflow_has_required_settings(workflow_path: Path) -> list[str]:
         "contents write permission": "contents: write",
         "issues write permission": "issues: write",
         "pull request write permission": "pull-requests: write",
-        "agent command": "repokeeper agent",
+        "agent action": "repokeeper/agent@",
     }
     return [label for label, snippet in required_snippets.items() if snippet not in text]
 

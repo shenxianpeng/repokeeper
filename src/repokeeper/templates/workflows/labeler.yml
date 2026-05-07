@@ -17,25 +17,9 @@ jobs:
       issues: write
       contents: read
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
+      - uses: shenxianpeng/repokeeper/labeler@v1
         with:
-          python-version: '3.10'
-
-      - name: Install RepoKeeper
-        run: pip install repokeeper
-
-      - name: Run Auto-Labeler
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
-            repokeeper labeler --repo "$GITHUB_REPOSITORY" --issue "${{ github.event.inputs.issue_number }}" --summary
-          elif [ "${{ github.event_name }}" = "issues" ]; then
-            repokeeper labeler --repo "$GITHUB_REPOSITORY" --issue "${{ github.event.issue.number }}" --summary
-          else
-            repokeeper labeler --repo "$GITHUB_REPOSITORY" --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
-          fi
+          repo: ${{ github.repository }}
+          issue: ${{ github.event.inputs.issue_number || github.event.issue.number || '' }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}

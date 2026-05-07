@@ -4,13 +4,51 @@ Get RepoKeeper running in 5 minutes.
 
 ## 1. Copy the agent workflow
 
-Create `.github/workflows/` and copy the Implementation Agent workflow:
+Create `.github/workflows/repokeeper.yml`:
 
-```bash
-mkdir -p .github/workflows
-curl -fsSLo .github/workflows/repokeeper.yml \
-  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/repokeeper.yml
+```yaml
+name: RepoKeeper Implementation Agent
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [labeled]
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    if: |
+      (
+        github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@repokeeper go') &&
+        (
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      ) ||
+      (
+        github.event_name == 'issues' &&
+        github.event.label.name == 'agent-todo'
+      )
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: shenxianpeng/repokeeper/agent@v1
+        with:
+          repo: ${{ github.repository }}
+          issue: ${{ github.event.issue.number }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          llm_base_url: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
 ```
+
+The composite action bundles checkout, Python setup, installation, and the agent
+run into a single step.
 
 You can also run `pip install repokeeper && repokeeper init . --minimal` if
 you prefer the CLI to write the profile and workflow.
@@ -73,8 +111,8 @@ repokeeper doctor --repo owner/repo
 ```
 
 Want community monitoring and daily health reports too? Run
-`repokeeper init . --all-workflows --force` or copy `radar.yml` and `patrol.yml`
-from the template directory.
+`repokeeper init . --all-workflows --force` to generate the full set of
+workflows (Agent, Radar, Patrol, Labeler, Review).
 
 ---
 

@@ -1,15 +1,23 @@
 # GitHub Actions
 
-RepoKeeper uses GitHub Actions workflows for automation. Each module has its
-own workflow file.
+RepoKeeper ships as **composite actions** — one per module — hosted in this
+repository at `shenxianpeng/repokeeper/<module>@v1`. Each composite action
+bundles checkout, Python setup, `pip install repokeeper`, and the module
+entrypoint into a single step.
 
-## Workflow Files
+## Composite Actions
 
-| File | Module | Trigger |
-|------|--------|---------|
-| `.github/workflows/repokeeper.yml` | Implementation Agent | `agent-todo` label or `@repokeeper go` comment |
-| `.github/workflows/radar.yml` | Community Radar | Every 3 hours (weekdays) + manual |
-| `.github/workflows/patrol.yml` | Daily Patrol | Daily at 8am UTC (weekdays) + manual |
+| Action | Module |
+|--------|--------|
+| `shenxianpeng/repokeeper/agent@v1` | Implementation Agent |
+| `shenxianpeng/repokeeper/radar@v1` | Community Radar |
+| `shenxianpeng/repokeeper/patrol@v1` | Daily Patrol |
+| `shenxianpeng/repokeeper/labeler@v1` | Auto-Labeler |
+| `shenxianpeng/repokeeper/review@v1` | Code Review Agent |
+| `shenxianpeng/repokeeper/doctor@v1` | Setup Doctor |
+
+Each action requires a workflow file in `.github/workflows/` that defines the
+trigger, permissions, and job that calls the action.
 
 ## Workflow: Implementation Agent
 
@@ -55,12 +63,21 @@ permissions:
 
 ### Steps
 
-1. **Checkout** — clone the repository with full history
-2. **Setup Python** — install Python 3.10+
-3. **Install RepoKeeper** — published templates use `pip install repokeeper`;
-   this repository's own workflows use `pip install -e .` to dogfood the
-   checked-out source
-4. **Run agent** — execute `repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"`
+A single step calls the composite action:
+
+```yaml
+steps:
+  - uses: shenxianpeng/repokeeper/agent@v1
+    with:
+      repo: ${{ github.repository }}
+      issue: ${{ github.event.issue.number }}
+      llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+      llm_base_url: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+      github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+```
+
+The composite action bundles checkout (fetch-depth: 0), Python 3.10+ setup,
+`pip install repokeeper`, and `repokeeper agent` internally.
 
 ### Required Secrets
 
@@ -100,10 +117,17 @@ permissions:
 
 ### Steps
 
-1. Checkout repository
-2. Setup Python 3.10+
-3. Install RepoKeeper
-4. Run `repokeeper radar`
+```yaml
+steps:
+  - uses: shenxianpeng/repokeeper/radar@v1
+    with:
+      repo: ${{ github.repository }}
+      llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+      github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The composite action handles checkout, Python setup, installation, and the
+`repokeeper radar --summary` run.
 
 ### Required Secrets
 
@@ -139,11 +163,17 @@ permissions:
 
 ### Steps
 
-1. Checkout repository
-2. Setup Python 3.10+
-3. Install RepoKeeper
-4. Run `repokeeper patrol --summary`
-5. Upload patrol summary as artifact
+```yaml
+steps:
+  - uses: shenxianpeng/repokeeper/patrol@v1
+    with:
+      repo: ${{ github.repository }}
+      llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+      github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The composite action handles checkout, Python setup, installation, and the
+`repokeeper patrol --summary` run.
 
 ### Artifacts
 
@@ -152,28 +182,18 @@ artifact for later review.
 
 ## Adding to Your Repository
 
-### Option 1: Generate from the CLI
+### Option 1: Use the CLI
 
 ```bash
 pip install repokeeper
-repokeeper init --workflows
+repokeeper init --all-workflows
 ```
 
-### Option 2: Copy from this repo
+### Option 2: Create workflows manually
 
-```bash
-mkdir -p your-repo/.github/workflows
-cp repokeeper/src/repokeeper/templates/workflows/*.yml your-repo/.github/workflows/
-cp repokeeper/repokeeper.yml your-repo/repokeeper.yml
-```
-
-### Option 3: Use as a submodule
-
-```bash
-git submodule add https://github.com/shenxianpeng/repokeeper .github/repokeeper-src
-```
-
-Then point your workflow to the submodule path.
+Create workflow files in `.github/workflows/` that reference the composite actions.
+See the [templates](https://github.com/shenxianpeng/repokeeper/tree/main/src/repokeeper/templates/workflows)
+for copyable examples.
 
 ## Customizing Schedules
 

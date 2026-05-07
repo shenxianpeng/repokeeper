@@ -1,0 +1,49 @@
+name: 'RepoKeeper Auto-Labeler'
+description: 'AI-powered issue and PR labeling — classifies content, picks from existing labels'
+inputs:
+  repo:
+    description: 'GitHub repository as owner/name'
+    required: true
+  issue:
+    description: 'Issue number to label (omit for batch mode)'
+    required: false
+  pr:
+    description: 'PR number to label'
+    required: false
+  llm_api_key:
+    description: 'LLM API key'
+    required: false
+  github_token:
+    description: 'GitHub token with issues write scope'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+
+    - name: Install RepoKeeper
+      shell: bash
+      run: pip install repokeeper
+
+    - name: Run Auto-Labeler
+      shell: bash
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+      run: |
+        ISSUE_FLAG=""
+        PR_FLAG=""
+        if [ -n "${{ inputs.issue }}" ]; then
+          ISSUE_FLAG="--issue ${{ inputs.issue }}"
+        fi
+        if [ -n "${{ inputs.pr }}" ]; then
+          PR_FLAG="--pr ${{ inputs.pr }}"
+        fi
+        repokeeper labeler --repo "${{ inputs.repo }}" $ISSUE_FLAG $PR_FLAG --summary \
+          | tee "$GITHUB_STEP_SUMMARY"

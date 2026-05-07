@@ -58,14 +58,6 @@ Three ways to onboard — pick one:
 
 Create `.github/workflows/repokeeper.yml` in your repo:
 
-```bash
-mkdir -p .github/workflows
-curl -fsSLo .github/workflows/repokeeper.yml \
-  https://raw.githubusercontent.com/shenxianpeng/repokeeper/main/src/repokeeper/templates/workflows/repokeeper.yml
-```
-
-Or copy the content below:
-
 ```yaml
 name: RepoKeeper Implementation Agent
 
@@ -76,7 +68,7 @@ on:
     types: [labeled]
 
 jobs:
-  repokeeper:
+  agent:
     runs-on: ubuntu-latest
     if: |
       (
@@ -98,26 +90,13 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: shenxianpeng/repokeeper/agent@v1
         with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-
-      - name: Install RepoKeeper
-        run: pip install repokeeper
-
-      - name: Run RepoKeeper Agent
-        env:
-          PYTHONUNBUFFERED: 1
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
-        run: repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"
+          repo: ${{ github.repository }}
+          issue: ${{ github.event.issue.number }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          llm_base_url: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
 ```
 
 Then add your API key: **Settings → Secrets → Actions → New secret:** `DEEPSEEK_API_KEY` = `sk-...`
@@ -132,13 +111,13 @@ repokeeper doctor --repo owner/repo
 environment, LLM key, and repository slug. Fix anything marked `missing`, then
 push the workflow.
 
-> Want Radar, Patrol, Labeler, and Review too? Copy [`radar.yml`](src/repokeeper/templates/workflows/radar.yml), [`patrol.yml`](src/repokeeper/templates/workflows/patrol.yml), [`labeler.yml`](src/repokeeper/templates/workflows/labeler.yml), and [`review.yml`](src/repokeeper/templates/workflows/review.yml) into the same `.github/workflows/` folder.
+> Want Radar, Patrol, Labeler, and Review too? Add [`radar`](radar/action.yml), [`patrol`](patrol/action.yml), [`labeler`](labeler/action.yml), and [`review`](review/action.yml) composite actions to separate workflow files in `.github/workflows/`.
 
 ### 🖥️ CLI
 
 ```bash
 pip install repokeeper
-repokeeper init --all-workflows   # profile + all 3 workflows
+repokeeper init --all-workflows   # profile + all 5 workflows
 repokeeper init --minimal         # profile + agent workflow only
 repokeeper doctor --repo owner/repo
 ```
@@ -147,7 +126,7 @@ repokeeper doctor --repo owner/repo
 
 Paste this into any AI coding agent (Copilot Chat, Claude Code, Cursor, Windsurf, pi, etc.):
 
-> Add RepoKeeper to this repository. Create `.github/workflows/repokeeper.yml` with the Implementation Agent workflow from `github.com/shenxianpeng/repokeeper` — trigger on issue comments (`@repokeeper go`) and labels (`agent-todo`). Use `pip install repokeeper` in the workflow. Then tell me to add a `DEEPSEEK_API_KEY` secret in GitHub Actions settings.
+> Add RepoKeeper to this repository. Create `.github/workflows/repokeeper.yml` that uses the `shenxianpeng/repokeeper/agent@v1` composite action — trigger on issue comments (`@repokeeper go`) and labels (`agent-todo`). Pass `DEEPSEEK_API_KEY` as the `llm_api_key` input. Then tell me to add a `DEEPSEEK_API_KEY` secret in GitHub Actions settings.
 
 ### Trigger the agent
 

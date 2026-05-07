@@ -1,0 +1,44 @@
+name: 'RepoKeeper Code Review Agent'
+description: 'AI code review for pull requests — detects bugs, anti-patterns, and style issues'
+inputs:
+  repo:
+    description: 'GitHub repository as owner/name'
+    required: true
+  pr:
+    description: 'GitHub pull request number'
+    required: true
+  llm_api_key:
+    description: 'LLM API key'
+    required: false
+  llm_base_url:
+    description: 'OpenAI-compatible API base URL'
+    required: false
+    default: 'https://api.deepseek.com'
+  github_token:
+    description: 'GitHub token with repo scope'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+
+    - name: Install RepoKeeper
+      shell: bash
+      run: pip install repokeeper
+
+    - name: Run Code Review Agent
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: '1'
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+      run: repokeeper review --repo "${{ inputs.repo }}" --pr "${{ inputs.pr }}"

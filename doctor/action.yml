@@ -1,0 +1,29 @@
+name: 'RepoKeeper Doctor'
+description: 'Checks profile, workflows, tokens, and LLM key — validates your RepoKeeper setup'
+inputs:
+  repo:
+    description: 'GitHub repository as owner/name'
+    required: true
+  github_token:
+    description: 'GitHub token with repo read scope'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+
+    - name: Install RepoKeeper
+      shell: bash
+      run: pip install repokeeper
+
+    - name: Run Doctor
+      shell: bash
+      env:
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+      run: repokeeper doctor --repo "${{ inputs.repo }}"

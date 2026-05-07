@@ -1,0 +1,35 @@
+name: 'RepoKeeper Community Radar'
+description: 'Monitors discussions and issues for keywords, classifies hits, notifies maintainers'
+inputs:
+  repo:
+    description: 'GitHub repository as owner/name'
+    required: true
+  llm_api_key:
+    description: 'LLM API key'
+    required: false
+  github_token:
+    description: 'GitHub token with issues and discussions read scope'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+
+    - name: Install RepoKeeper
+      shell: bash
+      run: pip install repokeeper
+
+    - name: Run Community Radar
+      shell: bash
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+      run: |
+        repokeeper radar --repo "${{ inputs.repo }}" --summary \
+          | tee "$GITHUB_STEP_SUMMARY"

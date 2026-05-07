@@ -25,11 +25,14 @@ That command creates this layout:
 your-repo/
 ├── .github/
 │   └── workflows/
-│       ├── repokeeper.yml    # Implementation Agent
+│       ├── repokeeper.yml    # Implementation Agent (composite action)
 └── repokeeper.yml            # Your maintainer profile
 ```
 
-To also create Community Radar and Daily Patrol workflows, run
+All workflows use the `shenxianpeng/repokeeper/<module>@v1` composite actions,
+so they stay lean: checkout, Python, and pip install are bundled inside each action.
+
+To also create Community Radar, Daily Patrol, Labeler, and Review workflows, run
 `repokeeper init . --all-workflows --force`.
 
 ### Option 2: Use the CLI without workflows

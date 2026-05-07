@@ -2,9 +2,18 @@
 
 All notable changes to RepoKeeper will be documented in this file.
 
-## [Unreleased]
+## [1.0.0] - 2026-05-07
 
 ### Added
+- **Composite GitHub Actions.** Each module now ships as a standalone composite
+  action at `shenxianpeng/repokeeper/<module>@v1`. Composite actions bundle
+  checkout, Python setup, `pip install`, and the module entrypoint into a
+  single step. Workflow files are now ~15 lines instead of ~40.
+  - Six actions: `agent`, `radar`, `patrol`, `labeler`, `review`, `doctor`.
+  - Publishable to GitHub Marketplace.
+- **Per-module AI model selection.** Each module can use a different LLM model
+  via `labeler.model`, `radar.model`, `patrol.model`, `review.model` in the
+  profile. Falls back to `agent.model` then `deepseek-chat`.
 - **Auto-Labeler (Module 5).** New `labeler` module that automatically labels
   GitHub issues and pull requests using AI. Fetches repo labels first, then
   uses the LLM to pick from existing labels (respecting naming conventions
@@ -21,10 +30,23 @@ All notable changes to RepoKeeper will be documented in this file.
   - New `repokeeper labeler` CLI command with `--issue`, `--pr`, `--summary` flags.
   - New `labeler.yml` workflow template (triggers on `issues: [opened]` and
     `workflow_dispatch`).
-  - New `repokeeper-labeler` label for tracking.
   - Profile config: `labeler.enabled`, `.mode`, `.confidence_threshold`,
     `.max_labels`, `.allow_create_labels`, `.exclude_labels`.
   (46 tests, 82% coverage on labeler module.)
+- **Tool comparison table** in README and docs now includes PR Agent (Qodo)
+  alongside Copilot and Cursor, with updated descriptions reflecting modern
+  AI agent coding capabilities.
+
+### Changed
+- **Workflow templates rewritten.** All five `.github/workflows/*.yml` templates
+  now use the composite actions. Setup steps (checkout, Python, pip install)
+  are no longer inlined.
+- **Doctor check** now validates the composite action reference
+  (`repokeeper/agent@`) instead of the raw `repokeeper agent` command.
+
+### Fixed
+- Mypy `no-any-return` error in `get_module_model` (profile.py:343).
+- Labeler: fetch repo labels once in batch mode instead of per-issue.
 
 ## [0.10.0] - 2026-05-07
 

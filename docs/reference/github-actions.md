@@ -14,7 +14,6 @@ entrypoint into a single step.
 | `shenxianpeng/repokeeper/patrol@v1` | Daily Patrol |
 | `shenxianpeng/repokeeper/labeler@v1` | Auto-Labeler |
 | `shenxianpeng/repokeeper/review@v1` | Code Review Agent |
-| `shenxianpeng/repokeeper/doctor@v1` | Setup Doctor |
 
 Each action requires a workflow file in `.github/workflows/` that defines the
 trigger, permissions, and job that calls the action.

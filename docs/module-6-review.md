@@ -54,8 +54,7 @@ Copy the workflow template into your repo:
 cp src/repokeeper/templates/workflows/review.yml .github/workflows/review.yml
 ```
 
-Or run `repokeeper doctor --repo owner/repo` to diagnose and fix missing
-workflows.
+Or run `repokeeper doctor --repo owner/repo` to diagnose missing workflows.
 
 ## What It Checks
 

@@ -2,23 +2,18 @@
 
 Instructions for AI coding agents working on this repository.
 
-## Preparing a Release
+## Conversational Style
 
-When asked to prepare a release (e.g., "准备发布 0.3.0"), do all of the following:
+- Keep answers short and concise
+- No emojis in commits, issues, PR comments, or code
+- No fluff or cheerful filler text
+- Technical prose only, be kind but direct
 
-1. **Tag the release** — create a git tag:
-   ```bash
-   git tag -a vX.Y.Z -m "Release vX.Y.Z"
-   ```
-   `setuptools-scm` derives the version from git tags, so there's no need to bump versions in source files.
+## Code Quality
 
-2. **Update CHANGELOG** — the canonical file is `CHANGELOG.md` (root). `docs/changelog.md` is a symlink to it, so only edit `CHANGELOG.md`. Add a new `## [X.Y.Z] - YYYY-MM-DD` section summarizing changes since the last release, derived from `git log`.
-
-3. **Update docs** — ensure `mkdocs build --strict` succeeds. The CHANGELOG is already wired into the nav via the symlink.
-
-4. **Lint and test** — run `ruff check src/ tests/` and `pytest tests/ --cov=repokeeper --cov-report=term-missing`. All checks must pass with zero lint issues.
-
-5. **Build** — run `python -m build` to verify the package builds cleanly.
+- Read files in full before making wide-ranging changes, before editing files you have not already fully inspected, and when the user asks you to investigate or audit something. Do not rely only on search snippets for broad changes.
+- Always ask before removing functionality or code that appears to be intentional
+- Do not preserve backward compatibility unless the user explicitly asks for it
 
 ## Before Committing
 
@@ -39,3 +34,49 @@ pytest tests/ --cov=repokeeper --cov-report=term-missing
 ```
 
 Ensure all tests pass.
+
+## Git Rules for Parallel Agents
+
+Multiple agents may work on different files in the same worktree simultaneously. You MUST follow these rules:
+
+### Committing
+
+- **ONLY commit files YOU changed in THIS session**
+- ALWAYS include `fixes #<number>` or `closes #<number>` in the commit message when there is a related issue or PR
+- NEVER use `git add -A` or `git add .` - these sweep up changes from other agents
+- ALWAYS use `git add <specific-file-paths>` listing only files you modified
+- Before committing, run `git status` and verify you are only staging YOUR files
+- Track which files you created/modified/deleted during the session
+
+### Forbidden Git Operations
+
+These commands can destroy other agents' work:
+
+- `git reset --hard` - destroys uncommitted changes
+- `git checkout .` - destroys uncommitted changes
+- `git clean -fd` - deletes untracked files
+- `git stash` - stashes ALL changes including other agents' work
+- `git add -A` / `git add .` - stages other agents' uncommitted work
+- `git commit --no-verify` - bypasses required checks and is never allowed
+
+### Safe Workflow
+
+```bash
+# 1. Check status first
+git status
+
+# 2. Add ONLY your specific files
+git add path/to/file1.py path/to/file2.py
+
+# 3. Commit
+git commit -m "description"
+
+# 4. Push (pull --rebase if needed, but NEVER reset/checkout)
+git pull --rebase && git push
+```
+
+### If Rebase Conflicts Occur
+
+- Resolve conflicts in YOUR files only
+- If conflict is in a file you didn't modify, abort and ask the user
+- NEVER force push

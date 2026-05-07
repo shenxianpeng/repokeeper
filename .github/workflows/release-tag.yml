@@ -1,0 +1,22 @@
+name: Update v1 Tag
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  move-v1:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Move v1 tag to latest release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f v1 "${{ github.event.release.tag_name }}"
+          git push -f origin v1

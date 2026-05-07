@@ -340,8 +340,8 @@ def get_module_model(profile: dict, module: str) -> str:
 
     Set a module's model to ``null`` / omit it to inherit ``agent.model``.
     """
-    return (profile.get(module, {}).get("model")
-            or profile.get("agent", {}).get("model", "deepseek-chat"))
+    return str(profile.get(module, {}).get("model")
+               or profile.get("agent", {}).get("model", "deepseek-chat"))
 
 
 def validate_profile(profile: dict) -> list[str]:

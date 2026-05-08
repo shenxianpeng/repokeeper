@@ -149,6 +149,8 @@ repokeeper patrol --repo owner/repo --summary
 repokeeper agent --repo owner/repo --issue 42
 repokeeper labeler --repo owner/repo --issue 42
 repokeeper labeler --repo owner/repo --pr 42
+repokeeper review --repo owner/repo --pr 42
+repokeeper describe --repo owner/repo --pr 42
 ```
 
 ---
@@ -167,7 +169,7 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |
 | [Auto-Labeler](https://shenxianpeng.github.io/repokeeper/module-5-labeler/) | AI-powered issue & PR labeling |
 | [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
-| [Code Review Agent](https://shenxianpeng.github.io/repokeeper/module-6-review/) | AI code review for PRs |
+| [Code Review Agent](https://shenxianpeng.github.io/repokeeper/module-6-review/) | Inline review, PR descriptions, incremental re-review |
 
 ## Contributing
 

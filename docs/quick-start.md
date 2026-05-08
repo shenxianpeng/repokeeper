@@ -114,6 +114,13 @@ Want community monitoring and daily health reports too? Run
 `repokeeper init . --all-workflows --force` to generate the full set of
 workflows (Agent, Radar, Patrol, Labeler, Review).
 
+Other useful commands:
+
+```bash
+repokeeper review --repo owner/repo --pr 42   # code review with inline comments
+repokeeper describe --repo owner/repo --pr 42  # auto-generate PR description
+```
+
 ---
 
 That's it. RepoKeeper can now handle issue-triggered implementation PRs.

@@ -222,9 +222,11 @@ agent:
 |-------|------|---------|-------------|
 | `model` | string | `deepseek-chat` | LLM model |
 | `implement` | bool | `true` | Enable automatic implementation |
-| `max_context_files` | int | `40` | Max files in LLM context |
+| `max_context_files` | int | `60` | Max files in LLM context |
+| `max_context_tokens` | int/null | `null` | Token budget for context |
 | `temperature` | float | `0.1` | LLM temperature |
 | `skip_keywords` | list | `[]` | Phrases that trigger auto-skip |
+| `similar_issue_check` | bool | `true` | Scan for duplicate issues before implementing |
 | `verify_commands` | list/bool | auto-detect | Commands required before PR creation; set `false` to disable |
 
 ### `radar` — Community Radar Settings
@@ -267,6 +269,45 @@ patrol:
 | `auto_upgrade_deps` | bool | `true` | Include dependency upgrade candidates |
 | `stale_days` | int | `90` | Stale issue threshold |
 | `ci_auto_fix` | bool | `true` | Record auto-fixable CI candidates |
+
+### `labeler` — Auto-Labeler Settings
+
+```yaml
+labeler:
+  enabled: true
+  model: null
+  mode: add
+  confidence_threshold: 0.7
+  max_labels: 3
+  allow_create_labels: true
+  exclude_labels:
+    - repokeeper-labeler
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the auto-labeler |
+| `model` | string/null | `null` | Per-module model (null = inherit `agent.model`) |
+| `mode` | string | `add` | `add` (apply directly) or `suggest` (post comment) |
+| `confidence_threshold` | float | `0.7` | Minimum AI confidence to apply labels |
+| `max_labels` | int | `3` | Max labels per issue/PR |
+| `allow_create_labels` | bool | `true` | Allow creating new labels with descriptions |
+| `exclude_labels` | list | `[""]` | Labels to ignore when finding unlabeled issues |
+
+### `review` — Code Review Settings
+
+```yaml
+review:
+  model: deepseek-reasoner
+  describe_on_open: false
+  incremental: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string/null | `null` | Per-module model (null = inherit `agent.model`) |
+| `describe_on_open` | bool | `false` | Auto-generate PR description on `pull_request.opened` |
+| `incremental` | bool | `true` | Re-review when new commits are pushed (`pull_request.synchronize`) |
 
 ## Environment Variable Overrides
 
@@ -383,6 +424,7 @@ agent:
     - "needs design"
     - "breaking change"
     - "security audit"
+  similar_issue_check: true
 
 radar:
   enabled: true
@@ -403,4 +445,16 @@ patrol:
   auto_upgrade_deps: true
   stale_days: 90
   ci_auto_fix: true
+
+labeler:
+  enabled: true
+  mode: add
+  confidence_threshold: 0.7
+  max_labels: 3
+  allow_create_labels: true
+
+review:
+  model: null
+  describe_on_open: false
+  incremental: true
 ```

@@ -74,6 +74,9 @@ Before doing anything expensive, the agent checks:
 1. **Profile `agent.implement`**: If `false`, skips immediately.
 2. **Skip keywords**: If the issue contains any phrase from `agent.skip_keywords`,
    the agent skips with an explanation.
+3. **Similar issue detection**: If `agent.similar_issue_check` is `true`
+   (default), the agent scans open issues for keyword overlap. When similar
+   issues are found, it posts a comment with links and skips implementation.
 
 Example skip keyword match:
 
@@ -293,7 +296,9 @@ pr:
 | `agent.change_mode` | `edits` | Preferred change style: `edits`, `patch`, or `full_file` |
 | `agent.max_fix_attempts` | `2` | Verification fix retries before giving up |
 | `agent.skip_keywords` | `[]` | Phrases that trigger auto-skip |
+| `agent.similar_issue_check` | `true` | Scan for duplicate issues before implementing |
 | `agent.verify_commands` | auto-detect | Commands that must pass before PR creation; set `false` to disable |
+| `agent.similar_issue_check` | `true` | Scan for duplicate issues before implementing |
 | `style.code_style` | — | Code style instructions for the LLM |
 | `tech.preferred` | `[]` | Preferred tech stack (LLM prioritizes) |
 | `tech.avoid` | `[]` | Tech to avoid (LLM will not use) |

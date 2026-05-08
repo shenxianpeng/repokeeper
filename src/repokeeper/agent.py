@@ -754,6 +754,110 @@ Closes #{issue_data['number']}
     return str(pr.html_url)
 
 
+# ─── Similar issue detection ────────────────────────────────────────────────
+
+
+def find_similar_issues(
+    repo: Any,
+    issue_data: dict[str, Any],
+    profile: dict[str, Any] | None = None,
+    max_results: int = 5,
+) -> list[dict[str, Any]]:
+    """Search for open issues similar to the given issue.
+
+    Uses GitHub's search API to find issues with overlapping keywords
+    in the title or body.  Excludes the current issue from results.
+
+    Call this before implementing an issue to avoid duplicating work.
+
+    Args:
+        repo: PyGithub Repository object.
+        issue_data: Issue data dict from :func:`get_issue_data`.
+        profile: Maintainer profile dict (unused currently, for future
+                 similarity tuning).
+        max_results: Maximum number of similar issues to return.
+
+    Returns:
+        List of dicts with ``number``, ``title``, ``url``, ``state``,
+        ``created_at``, ``author``.
+    """
+    title = issue_data.get("title", "")
+    # Extract significant words (3+ chars) from title for search
+    words = [w for w in title.split() if len(w) >= 3 and w.lower() not in {
+        "the", "and", "for", "with", "that", "this", "from", "when", "should",
+    }]
+    if not words:
+        return []
+
+    results: list[dict[str, Any]] = []
+    current_number = issue_data.get("number")
+
+    try:
+        # Use GitHub's issue listing with keyword overlap
+        issues = repo.get_issues(state="open", sort="created", direction="desc")
+        for issue in issues:
+            if len(results) >= max_results * 2:  # over-fetch to allow filtering
+                break
+            if issue.pull_request is not None:
+                continue
+            if issue.number == current_number:
+                continue
+
+            issue_title = (issue.title or "").lower()
+            issue_body = (issue.body or "").lower()
+
+            # Simple similarity: any significant word overlap
+            overlap = sum(1 for w in words if w.lower() in issue_title or w.lower() in issue_body)
+            # At least 2 word overlaps or more than 40% of words match
+            threshold = max(2, len(words) * 0.4)
+            if overlap >= threshold:
+                results.append({
+                    "number": issue.number,
+                    "title": issue.title,
+                    "url": issue.html_url,
+                    "state": issue.state,
+                    "created_at": str(issue.created_at),
+                    "author": issue.user.login if issue.user else "unknown",
+                })
+
+    except Exception as exc:
+        logger.warning("Similar issue search failed: %s", exc)
+
+    return results[:max_results]
+
+
+def _format_similar_issues_comment(
+    issue_data: dict[str, Any],
+    similar: list[dict[str, Any]],
+) -> str:
+    """Format a comment listing similar existing issues.
+
+    Args:
+        issue_data: The original issue data.
+        similar: List of similar issue dicts from :func:`find_similar_issues`.
+
+    Returns:
+        Markdown comment string.
+    """
+    lines = [
+        "🤖 **RepoKeeper** found potentially related issues. "
+        "Please review before implementing:",
+        "",
+    ]
+    for s in similar:
+        lines.append(
+            f"- [#{s['number']} {s['title']}]({s['url']}) "
+            f"(opened {s['created_at'][:10]} by @{s['author']})"
+        )
+    lines.append("")
+    lines.append(
+        "If this issue is a duplicate, close it with a link to the original. "
+        "Remove the `agent-todo` label or comment `@repokeeper go` again to "
+        "proceed anyway."
+    )
+    return "\n".join(lines)
+
+
 # ─── Main entry point ────────────────────────────────────────────────────────
 
 
@@ -837,6 +941,29 @@ def run_agent(
             f"Remove the keyword or clarify if you still want automatic implementation.",
         )
         return {"skip": True, "reason": f"Skip keyword: {skip_kw}", "pr_url": None}
+
+    # ── Similar issue detection ──
+    if profile.get("agent", {}).get("similar_issue_check", True):
+        logger.info("Checking for similar existing issues...")
+        similar = find_similar_issues(repo, issue_data, profile)
+        if similar:
+            logger.info(
+                "Found %d similar issue(s): %s",
+                len(similar),
+                ", ".join(f"#{s['number']}" for s in similar),
+            )
+            post_comment(issue_obj, _format_similar_issues_comment(issue_data, similar))
+            return {
+                "skip": True,
+                "reason": (
+                    f"Found {len(similar)} similar open issue(s): "
+                    + ", ".join(f"#{s['number']}" for s in similar)
+                    + ". Review duplicates and re-trigger if this is distinct."
+                ),
+                "similar_issues": similar,
+                "pr_url": None,
+            }
+        logger.info("No similar issues found")
 
     post_comment(issue_obj, "🤖 **RepoKeeper** is analyzing this issue — working on an implementation...")
 

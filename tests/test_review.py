@@ -852,3 +852,284 @@ def test_format_review_comment_with_security_concerns():
     comment = review.format_review_comment(pr_data, review_data, usage, {})
     assert "Security Concerns" in comment
     assert "Hardcoded secret" in comment
+
+
+# ── _convert_issue_to_review_comment ─────────────────────────────────────────
+
+
+def test_convert_issue_to_review_comment_basic():
+    """Converts LLM issue dict to GitHub review comment format."""
+    issue = {
+        "file": "src/main.py",
+        "line": 42,
+        "message": "SQL injection risk",
+        "suggestion": "Use parameterized queries",
+    }
+    comment = review._convert_issue_to_review_comment(issue)
+    assert comment["path"] == "src/main.py"
+    assert comment["line"] == 42
+    assert comment["side"] == "RIGHT"
+    assert "SQL injection risk" in comment["body"]
+    assert "parameterized queries" in comment["body"]
+    assert "```suggestion" in comment["body"]
+
+
+def test_convert_issue_to_review_comment_no_suggestion():
+    """Issue without suggestion field omits the suggestion block."""
+    issue = {
+        "file": "a.py",
+        "line": 10,
+        "message": "Unused import",
+    }
+    comment = review._convert_issue_to_review_comment(issue)
+    assert comment["path"] == "a.py"
+    assert comment["line"] == 10
+    assert "Unused import" in comment["body"]
+    assert "```suggestion" not in comment["body"]
+
+
+def test_convert_issue_to_review_comment_zero_line():
+    """Line 0 is clamped to 1."""
+    issue = {
+        "file": "b.py",
+        "line": 0,
+        "message": "Test",
+    }
+    comment = review._convert_issue_to_review_comment(issue)
+    assert comment["line"] == 1
+
+
+# ── post_review_comment (with inline comments) ───────────────────────────────
+
+
+def test_post_review_comment_with_inline_review(monkeypatch):
+    """When review_data contains issues, creates review via API with inline comments."""
+    monkeypatch.setattr(review, "logger", MagicMock())
+
+    pr_obj = MagicMock()
+    pr_obj.create_review.return_value = MagicMock(id="review-123")
+
+    review_data = {
+        "approval_recommendation": "request_changes",
+        "summary": "Found issues",
+        "issues": [
+            {"file": "a.py", "line": 1, "message": "Bad", "suggestion": "Fix"},
+        ],
+    }
+
+    review_id = review.post_review_comment(
+        pr_obj, "# Summary", review_data=review_data, event="REQUEST_CHANGES",
+    )
+    assert review_id == "review-123"
+    pr_obj.create_review.assert_called_once()
+    call_kwargs = pr_obj.create_review.call_args[1]
+    assert call_kwargs["event"] == "REQUEST_CHANGES"
+    assert len(call_kwargs["comments"]) == 1
+
+
+def test_post_review_comment_fallback_when_no_issues(monkeypatch):
+    """When review_data has no issues, falls back to issue comment."""
+    pr_obj = MagicMock()
+
+    review_data = {
+        "approval_recommendation": "approve",
+        "summary": "LGTM",
+        "issues": [],
+    }
+
+    result = review.post_review_comment(
+        pr_obj, "# Summary", review_data=review_data, event="APPROVE",
+    )
+    assert result is None
+    pr_obj.create_review.assert_not_called()
+    pr_obj.create_issue_comment.assert_called_once()
+
+
+def test_post_review_comment_fallback_on_api_error(monkeypatch):
+    """When review API throws, falls back to issue comment."""
+    monkeypatch.setattr(review, "logger", MagicMock())
+
+    pr_obj = MagicMock()
+    pr_obj.create_review.side_effect = RuntimeError("API down")
+
+    review_data = {
+        "issues": [{"file": "a.py", "line": 1, "message": "Bad"}],
+    }
+
+    result = review.post_review_comment(
+        pr_obj, "# Summary", review_data=review_data,
+    )
+    assert result is None
+    pr_obj.create_issue_comment.assert_called_once()
+
+
+# ── _find_previous_review / _dismiss_review ──────────────────────────────────
+
+
+def test_find_previous_review_finds_marker():
+    """Returns review object whose body contains the RepoKeeper marker."""
+    review_obj = MagicMock()
+    review_obj.body = "Some text\n🤖 RepoKeeper Code Review\nMore text"
+
+    pr_obj = MagicMock()
+    pr_obj.get_reviews.return_value = [review_obj]
+
+    found = review._find_previous_review(pr_obj)
+    assert found is review_obj
+
+
+def test_find_previous_review_no_marker():
+    """Returns None when no review has the marker."""
+    review_obj = MagicMock()
+    review_obj.body = "Plain comment"
+
+    pr_obj = MagicMock()
+    pr_obj.get_reviews.return_value = [review_obj]
+
+    found = review._find_previous_review(pr_obj)
+    assert found is None
+
+
+def test_find_previous_review_api_error(monkeypatch):
+    """Returns None gracefully when get_reviews fails."""
+    pr_obj = MagicMock()
+    pr_obj.get_reviews.side_effect = RuntimeError("API error")
+
+    found = review._find_previous_review(pr_obj)
+    assert found is None
+
+
+def test_dismiss_review_calls_dismiss():
+    """Dismisses the review with the given message."""
+    review_obj = MagicMock()
+
+    result = review._dismiss_review(review_obj, "Outdated")
+    assert result is True
+    review_obj.dismiss.assert_called_once_with("Outdated")
+
+
+def test_dismiss_review_handles_error():
+    """Returns False when dismiss fails."""
+    review_obj = MagicMock()
+    review_obj.dismiss.side_effect = RuntimeError("cannot dismiss")
+
+    result = review._dismiss_review(review_obj)
+    assert result is False
+
+
+# ── run_review (incremental / re-review) ─────────────────────────────────────
+
+
+def test_run_review_incremental_dismisses_previous(monkeypatch):
+    """When a previous review exists, it is dismissed and replaced."""
+    monkeypatch.setattr(review, "load_profile", lambda profile_path=None: {
+        "agent": {"implement": True, "skip_keywords": [], "model": "test"},
+        "style": {}, "tech": {}, "pr": {},
+    })
+
+    old_review = MagicMock()
+    old_review.body = "🤖 RepoKeeper Code Review"
+
+    pr_obj = MagicMock()
+    pr_obj.get_reviews.return_value = [old_review]
+    pr_obj.create_review.return_value = MagicMock(id="review-456")
+
+    repo_mock = MagicMock()
+    repo_mock.get_pull.return_value = pr_obj
+    repo_mock.get_repo.return_value = repo_mock
+
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(review, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(review, "LLMClient", lambda **kw: MagicMock())
+
+    def fake_get_pr_data(repo, num):
+        return {
+            "number": num, "title": "Updated PR", "body": "",
+            "author": "dev", "base_branch": "main", "head_branch": "feat",
+            "files": [], "changed_files": [], "comments": [],
+            "additions": 0, "deletions": 0, "changed_files_count": 0,
+        }
+    monkeypatch.setattr(review, "get_pr_data", fake_get_pr_data)
+    monkeypatch.setattr(review, "collect_review_context",
+                        lambda pr_data, profile: {})
+
+    def fake_call_llm(*args, **kwargs):
+        return {
+            "approval_recommendation": "comment",
+            "summary": "Updated review",
+            "issues": [{"file": "a.py", "line": 1, "message": "New issue", "suggestion": "Fix"}],
+            "style_violations": [],
+            "positive_notes": [],
+            "test_recommendation": "",
+            "security_concerns": [],
+        }, TokenUsage()
+
+    monkeypatch.setattr(review, "call_llm_for_review", fake_call_llm)
+
+    result = review.run_review(
+        gh_token="tk", repository="owner/repo", pr_number=1, llm_api_key="key",
+    )
+    assert result["review_posted"] is True
+    assert result["incremental"] is True
+    old_review.dismiss.assert_called_once()
+
+
+# ── run_describe ────────────────────────────────────────────────────────────
+
+
+def test_run_describe_missing_config(monkeypatch):
+    """Missing required config raises ConfigError."""
+    for name in ("GITHUB_TOKEN", "GITHUB_REPOSITORY", "PR_NUMBER", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("REPOKEEPER_GITHUB_TOKEN", raising=False)
+    with pytest.raises(ConfigError, match="Missing required configuration"):
+        review.run_describe()
+
+
+def test_run_describe_updates_pr(monkeypatch):
+    """Happy path: generates and posts a description."""
+    monkeypatch.setattr(review, "load_profile", lambda profile_path=None: {
+        "agent": {"model": "test"},
+        "style": {}, "tech": {}, "pr": {},
+    })
+
+    pr_obj = MagicMock()
+    repo_mock = MagicMock()
+    repo_mock.get_pull.return_value = pr_obj
+    repo_mock.get_repo.return_value = repo_mock
+
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(review, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(review, "LLMClient", lambda **kw: MagicMock())
+
+    def fake_get_pr_data(repo, num):
+        return {
+            "number": num, "title": "Add feature", "body": "Old desc",
+            "author": "dev", "base_branch": "main", "head_branch": "feat",
+            "files": [], "changed_files": [], "comments": [],
+            "additions": 0, "deletions": 0, "changed_files_count": 0,
+        }
+    monkeypatch.setattr(review, "get_pr_data", fake_get_pr_data)
+
+    class Response:
+        content = '{"title": "", "body": "# New Feature\\n\\nThis PR adds a new feature."}'
+        usage = TokenUsage()
+
+    class Client:
+        def chat(self, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(review, "LLMClient", lambda **kw: Client())
+
+    result = review.run_describe(
+        gh_token="tk", repository="owner/repo", pr_number=1, llm_api_key="key",
+    )
+    assert result["description_posted"] is True
+    assert result["title_updated"] is False
+    # PR body was edited
+    edit_calls = [c for c in pr_obj.edit.call_args_list if "body" in c[1]]
+    assert len(edit_calls) >= 1
+
+

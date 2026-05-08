@@ -20,7 +20,7 @@ from .labeler import generate_labeler_summary, run_labeler
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
 from .radar import generate_radar_summary, run_radar
-from .review import run_review
+from .review import run_describe, run_review
 
 AGENT_WORKFLOW = "repokeeper.yml"
 OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml", "review.yml", "labeler.yml")
@@ -188,12 +188,35 @@ def cmd_review(args: argparse.Namespace) -> int:
         profile_path=args.profile,
     )
     if result.get("review_posted"):
+        inline_note = ""
+        if result.get("review_id"):
+            inline_note = f" (inline, review_id={result['review_id']})"
+        elif result.get("incremental"):
+            inline_note = " (re-review, fallback to comment)"
+        incremental_note = " (re-review)" if result.get("incremental") else ""
         print(
-            f"Review posted: {result.get('approval_recommendation', '?')}, "
-            f"{result.get('issues_count', 0)} issue(s) found"
+            f"Review posted{incremental_note}: {result.get('approval_recommendation', '?')}, "
+            f"{result.get('issues_count', 0)} issue(s) found{inline_note}"
         )
     else:
         print(f"Review not posted: {result.get('reason', 'unknown')}")
+    return 0
+
+
+def cmd_describe(args: argparse.Namespace) -> int:
+    result = run_describe(
+        gh_token=args.github_token,
+        repository=args.repo,
+        pr_number=args.pr,
+        llm_api_key=args.llm_api_key,
+        llm_base_url=args.llm_base_url,
+        profile_path=args.profile,
+    )
+    if result.get("description_posted"):
+        extra = " (title updated)" if result.get("title_updated") else ""
+        print(f"PR description updated{extra}")
+    else:
+        print(f"Description not posted: {result.get('error', 'unknown')}")
     return 0
 
 
@@ -480,6 +503,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_remote(review)
     review.add_argument("--pr", required=True, type=int, help="GitHub pull request number")
     review.set_defaults(func=cmd_review)
+
+    describe = subparsers.add_parser(
+        "describe",
+        help="Generate a structured PR description from the diff",
+    )
+    add_common_remote(describe)
+    describe.add_argument("--pr", required=True, type=int, help="GitHub pull request number")
+    describe.set_defaults(func=cmd_describe)
 
     labeler = subparsers.add_parser("labeler", help="Auto-label issues and PRs with AI")
     add_common_remote(labeler)

@@ -3,7 +3,15 @@ Module 5: Code Review Agent
 
 Triggered when a PR is labeled ``agent-review`` or when a maintainer
 comments ``@repokeeper review``. Reads the PR diff and relevant codebase
-context, then posts a structured code review comment.
+context, then posts a structured code review with **inline line-level
+comments** via GitHub's Pull Request Review API.
+
+Also provides:
+- **PR Description Generation** — auto-generates structured descriptions
+  from the diff when a PR is opened or via ``repokeeper describe``.
+- **Incremental Re-Review** — when ``pull_request.synchronize`` fires
+  (new commits pushed), the previous review is dismissed and a fresh
+  review is posted.
 
 Uses the Maintainer Profile (Module 4) to check:
 - Code style compliance
@@ -36,6 +44,10 @@ from repokeeper.repo_context import (
 )
 
 logger = get_logger("review")
+
+# Header line that identifies a RepoKeeper-generated review comment.
+# Used for incremental re-review to find and dismiss previous reviews.
+_REVIEW_MARKER = "🤖 RepoKeeper Code Review"
 
 # ─── GitHub helpers ──────────────────────────────────────────────────────────
 
@@ -85,20 +97,85 @@ def get_pr_data(repo: Any, pr_number: int) -> dict[str, Any]:
     }
 
 
-def post_review_comment(
-    pr_obj: Any, message: str, suggestions: list[dict[str, Any]] | None = None
-) -> None:
-    """Post a review comment on a GitHub PR.
+def _convert_issue_to_review_comment(
+    issue: dict[str, Any],
+) -> dict[str, Any]:
+    """Convert an LLM issue dict to a GitHub Pull Request review comment.
 
-    Uses the issue comment API for the summary, and optionally
-    adds an inline review for file-specific suggestions.
+    Maps ``file`` → ``path``, ``line`` → ``position`` (1-based),
+    ``message`` → ``body``, ``suggestion`` → suggestion block in body.
+    Uses ``side`` = "RIGHT" for the new/changed side of the diff.
+
+    Args:
+        issue: An issue dict from the LLM review response with keys
+               ``file``, ``line``, ``message``, ``suggestion``.
+
+    Returns:
+        Dict suitable for GitHub's review ``comments[]`` parameter:
+        ``path``, ``line``, ``side``, ``body``.
+    """
+    body_parts = [issue.get("message", "")]
+    suggestion = issue.get("suggestion", "")
+    if suggestion:
+        body_parts.append("")
+        body_parts.append(f"**Suggestion:**\n```suggestion\n{suggestion}\n```")
+    return {
+        "path": issue.get("file", ""),
+        "line": max(1, int(issue.get("line", 1))),
+        "side": "RIGHT",
+        "body": "\n".join(body_parts),
+    }
+
+
+def post_review_comment(
+    pr_obj: Any,
+    message: str,
+    review_data: dict[str, Any] | None = None,
+    event: str = "COMMENT",
+) -> str | None:
+    """Post a PR review with inline line-level comments via GitHub's review API.
+
+    Creates a Pull Request Review (``POST /repos/{owner}/{repo}/pulls/{number}/reviews``)
+    with a summary body and per-file, per-line comments.
+
+    Falls back to a plain issue comment when the review body contains no inline
+    comments (e.g. approval with no issues found).
 
     Args:
         pr_obj: PyGithub PullRequest object.
-        message: Markdown summary message.
-        suggestions: Optional list of line-level suggestions.
+        message: Markdown summary body for the review.
+        review_data: Full LLM review response dict (for extracting inline comments).
+        event: Review event — "COMMENT" (default), "APPROVE", or "REQUEST_CHANGES".
+
+    Returns:
+        Review ID string if posted via review API, ``None`` if fallback to
+        issue comment.
     """
+    inline_comments: list[dict[str, Any]] = []
+    if review_data:
+        issues = review_data.get("issues", [])
+        for issue in issues:
+            if isinstance(issue, dict) and issue.get("file") and issue.get("message"):
+                inline_comments.append(_convert_issue_to_review_comment(issue))
+
+    if inline_comments:
+        try:
+            review = pr_obj.create_review(
+                body=message,
+                event=event,
+                comments=inline_comments,
+            )
+            logger.info(
+                "Review posted with %d inline comments, id=%s",
+                len(inline_comments), getattr(review, "id", "?"),
+            )
+            return str(getattr(review, "id", ""))
+        except Exception as exc:
+            logger.warning(
+                "GitHub review API failed (%s), falling back to issue comment", exc,
+            )
     pr_obj.create_issue_comment(message)
+    return None
 
 
 # ─── Skip keyword check ─────────────────────────────────────────────────────
@@ -513,6 +590,248 @@ def format_review_comment(
     return "\n".join(lines)
 
 
+# ─── PR Description Generation ──────────────────────────────────────────────
+
+DESCRIBE_SYSTEM_PROMPT = """\
+You are an expert technical writer. Your job is to generate a clear,
+structured pull request description from the diff and changed files.
+
+Generate a description with these sections:
+1. **Summary** — one paragraph explaining what this PR does.
+2. **Changes** — bullet list of key changes per file/component.
+3. **Testing** — what testing was done or suggested test plan.
+4. **Screenshots / Notes** — any visual changes or notes (or "None").
+
+Respond with a single valid JSON object — no markdown fences:
+
+{
+  "title": "Concise PR title (if the existing title should be updated, else empty string)",
+  "body": "Full description in markdown with the sections above."
+}
+
+Be concise and focus on what reviewers need to know.
+Do not repeat the diff itself — summarise the intent and impact.
+"""
+
+
+def _call_llm_for_describe(
+    pr_data: dict[str, Any],
+    context_str: str,
+    profile: dict[str, Any],
+    llm_client: LLMClient,
+) -> tuple[dict[str, Any], TokenUsage]:
+    """Call the LLM to generate a PR description from the diff.
+
+    Args:
+        pr_data: PR data from :func:`get_pr_data`.
+        context_str: Formatted diff context.
+        profile: Maintainer profile dict.
+        llm_client: Unified LLM client.
+
+    Returns:
+        Tuple of (parsed JSON with ``title`` and ``body``, token usage).
+    """
+    user_prompt = f"""\
+## PR #{pr_data['number']}: {pr_data['title']}
+
+**Author:** {pr_data['author']}
+**Changes:** {pr_data['changed_files_count']} files, +{pr_data['additions']}/-{pr_data['deletions']}
+
+### Original Description
+{pr_data['body']}
+
+### Diff
+{context_str}
+"""
+
+    messages = [{"role": "user", "content": user_prompt}]
+    model = get_module_model(profile, "review")
+
+    response = llm_client.chat(
+        system=DESCRIBE_SYSTEM_PROMPT,
+        messages=messages,
+        model=model,
+        temperature=0.1,
+        max_tokens=4000,
+        stream=False,
+    )
+
+    usage = TokenUsage(
+        prompt_tokens=response.usage.prompt_tokens,
+        completion_tokens=response.usage.completion_tokens,
+        total_tokens=response.usage.total_tokens,
+        cost_usd=response.usage.cost_usd,
+        model=model,
+    )
+
+    result = parse_llm_json(response.content.strip())
+    return result, usage
+
+
+def run_describe(
+    gh_token: str | None = None,
+    repository: str | None = None,
+    pr_number: int | None = None,
+    llm_api_key: str | None = None,
+    llm_base_url: str | None = None,
+    profile_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Generate and post a structured PR description from the diff.
+
+    Reads the PR diff, calls the LLM to generate a description, and
+    updates the PR body.  If the LLM suggests a better title, the PR
+    title is also updated.
+
+    Args:
+        gh_token: GitHub personal access token.
+        repository: Repository slug (``owner/repo``).
+        pr_number: Pull request number.
+        llm_api_key: LLM API key.
+        llm_base_url: OpenAI-compatible API base URL.
+        profile_path: Path to repokeeper.yml.
+
+    Returns:
+        Dict with ``description_posted``, ``title_updated``, ``error``.
+    """
+    gh_token = (
+        gh_token
+        or os.environ.get("REPOKEEPER_GITHUB_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+    )
+    repository = repository or os.environ.get("GITHUB_REPOSITORY")
+    pr_number = pr_number or int(os.environ.get("PR_NUMBER", "0"))
+    llm_api_key = (
+        llm_api_key
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
+    llm_base_url = llm_base_url or os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
+
+    missing = []
+    if not gh_token:
+        missing.append("GITHUB_TOKEN or REPOKEEPER_GITHUB_TOKEN")
+    if not repository:
+        missing.append("GITHUB_REPOSITORY or --repo")
+    if not pr_number:
+        missing.append("PR_NUMBER or --pr")
+    if not llm_api_key:
+        missing.append("DEEPSEEK_API_KEY or OPENAI_API_KEY")
+    if missing:
+        raise ConfigError(f"Missing required configuration: {', '.join(missing)}")
+
+    profile = load_profile(profile_path)
+    gh = Github(gh_token)
+    llm = LLMClient(api_key=llm_api_key, base_url=llm_base_url)
+    assert repository is not None
+
+    try:
+        repo = gh.get_repo(repository)
+        pr_obj = repo.get_pull(pr_number)
+        pr_data = get_pr_data(repo, pr_number)
+    except Exception as exc:
+        logger.error("Failed to access PR: %s", exc)
+        return {"description_posted": False, "title_updated": False, "error": str(exc)}
+
+    logger.info("Generating description for PR #%d...", pr_number)
+
+    try:
+        context_str = build_review_context_string(pr_data, {})
+        result, usage = _call_llm_for_describe(pr_data, context_str, profile, llm)
+
+        if usage.total_tokens > 0:
+            logger.info(
+                "LLM usage: %d tokens · estimated $%.6f",
+                usage.total_tokens, usage.cost_usd,
+            )
+
+        new_body = result.get("body", "")
+        new_title = (result.get("title") or "").strip()
+
+        if not new_body:
+            logger.warning("LLM returned empty description")
+            return {"description_posted": False, "title_updated": False, "error": "Empty description"}
+
+        # Update PR body
+        pr_obj.edit(body=new_body)
+        logger.info("PR #%d description updated", pr_number)
+
+        title_updated = False
+        if new_title and new_title != pr_data["title"]:
+            pr_obj.edit(title=new_title)
+            logger.info("PR #%d title updated: %s", pr_number, new_title)
+            title_updated = True
+
+        footer = (
+            "\n\n---\n"
+            "<sub>🤖 Description generated by "
+            "[RepoKeeper](https://github.com/shenxianpeng/repokeeper)</sub>"
+        )
+        if footer not in new_body:
+            pr_obj.edit(body=new_body + footer)
+
+        return {
+            "description_posted": True,
+            "title_updated": title_updated,
+        }
+
+    except LLMParseError as exc:
+        logger.error("LLM parse error: %s", exc)
+        pr_obj.create_issue_comment(
+            f"🤖 **RepoKeeper** description generation failed: could not parse LLM response.\n\n"
+            f"```\n{exc}\n```"
+        )
+        return {"description_posted": False, "title_updated": False, "error": str(exc)}
+    except Exception as exc:
+        logger.error("Describe error: %s", exc)
+        raise
+
+
+# ─── Incremental review helpers ─────────────────────────────────────────────
+
+
+def _find_previous_review(pr_obj: Any) -> Any | None:
+    """Find the most recent RepoKeeper review on a PR.
+
+    Iterates through PR reviews and returns the first one whose body
+    contains the RepoKeeper review marker.  Used for incremental
+    re-review to dismiss the old review before posting a new one.
+
+    Args:
+        pr_obj: PyGithub PullRequest object.
+
+    Returns:
+        The most recent PyGithub review object, or ``None``.
+    """
+    try:
+        reviews = pr_obj.get_reviews()
+        for review in reviews:
+            body = getattr(review, "body", "") or ""
+            if _REVIEW_MARKER in body:
+                return review
+    except Exception as exc:
+        logger.debug("Could not fetch PR reviews: %s", exc)
+    return None
+
+
+def _dismiss_review(review_obj: Any, message: str = "Outdated — new review posted after push.") -> bool:
+    """Dismiss a previous pull request review.
+
+    Args:
+        review_obj: PyGithub review object to dismiss.
+        message: Dismissal message.
+
+    Returns:
+        True if dismissal succeeded.
+    """
+    try:
+        review_obj.dismiss(message)
+        logger.info("Dismissed previous review id=%s", getattr(review_obj, "id", "?"))
+        return True
+    except Exception as exc:
+        logger.warning("Could not dismiss previous review: %s", exc)
+        return False
+
+
 # ─── Main entry point ────────────────────────────────────────────────────────
 
 
@@ -606,10 +925,16 @@ def run_review(
             "reason": f"Skip keyword: {skip_kw}",
         }
 
-    # Acknowledge
-    pr_obj.create_issue_comment(
-        "🤖 **RepoKeeper** is reviewing this PR — analyzing changes..."
-    )
+    # Acknowledge (skip for incremental re-review — less noisy)
+    existing_review = _find_previous_review(pr_obj)
+    is_incremental = existing_review is not None
+
+    if not is_incremental:
+        pr_obj.create_issue_comment(
+            "🤖 **RepoKeeper** is reviewing this PR — analyzing changes..."
+        )
+    else:
+        logger.info("Incremental re-review: found previous review, will dismiss and replace")
 
     try:
         # Collect review context
@@ -633,17 +958,31 @@ def run_review(
                 usage.total_tokens, usage.cost_usd, usage.model,
             )
 
-        # Format and post review
+        # Map recommendation to GitHub review event
+        recommendation = review.get("approval_recommendation", "comment")
+        event_map = {"approve": "APPROVE", "request_changes": "REQUEST_CHANGES", "comment": "COMMENT"}
+        review_event = event_map.get(recommendation, "COMMENT")
+
+        # Dismiss previous review on incremental re-review
+        if existing_review is not None:
+            _dismiss_review(existing_review)
+            logger.info("Re-review: dismissed previous review")
+
+        # Format and post review with inline comments
         comment = format_review_comment(pr_data, review, usage, profile)
-        post_review_comment(pr_obj, comment)
-        logger.info("Review posted for PR #%d", pr_number)
+        review_id = post_review_comment(pr_obj, comment, review_data=review, event=review_event)
+        logger.info("Review posted for PR #%d (review_id=%s, inline=%s)",
+                     pr_number, review_id,
+                     "yes" if review_id else "no (fallback to comment)")
 
         return {
             "review_posted": True,
-            "approval_recommendation": review.get("approval_recommendation", "comment"),
+            "review_id": review_id,
+            "approval_recommendation": recommendation,
             "issues_count": len(review.get("issues", [])),
             "style_violations_count": len(review.get("style_violations", [])),
             "security_concerns_count": len(review.get("security_concerns", [])),
+            "incremental": is_incremental,
         }
 
     except LLMParseError as exc:

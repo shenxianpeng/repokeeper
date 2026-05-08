@@ -76,6 +76,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
         "context_expansion": True,    # include likely tests and local deps
         "change_mode": "edits",       # edits | patch | full_file
         "max_fix_attempts": 2,        # verification failure retry count (0 = off)
+        "similar_issue_check": True,  # search for duplicate issues before implementing
     },
     # ── Radar ──
     "radar": {
@@ -110,6 +111,8 @@ DEFAULT_PROFILE: dict[str, Any] = {
     # ── Review ──
     "review": {
         "model": None,                # per-module model (None = use agent.model)
+        "describe_on_open": False,    # auto-generate PR description on pull_request.opened
+        "incremental": True,          # re-review on new commits (pull_request.synchronize)
     },
 }
 
@@ -274,6 +277,7 @@ maintainer: your-github-username
 #   context_expansion: true     # include related tests and local dependencies
 #   change_mode: edits          # edits | patch | full_file
 #   max_fix_attempts: 2       # retry count when verification fails (0 = off)
+#   similar_issue_check: true # search for duplicate issues before implementing
 #   skip_keywords:            # phrases that trigger auto-skip
 #     - "needs design"
 #     - "breaking change"
@@ -323,6 +327,8 @@ maintainer: your-github-username
 # ── Code Review ──
 # review:
 #   model: deepseek-reasoner  # per-module model (omitted = use agent.model)
+#   describe_on_open: false   # auto-generate PR description when a PR is opened
+#   incremental: true         # re-review when new commits are pushed to the PR
 #
 # ─────────────────────────────────────
 # Tip: Place this file in the root of each repo.

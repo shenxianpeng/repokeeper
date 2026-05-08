@@ -2412,3 +2412,236 @@ def test_verification_fix_loop_applies_changes_to_disk(monkeypatch, tmp_path):
         result, issue_data, profile, llm, workdir=tmp_path,
     )
     assert failures == []
+
+
+# ── find_similar_issues ──────────────────────────────────────────────────────
+
+
+def test_find_similar_issues_no_similar(monkeypatch):
+    """Returns empty list when no issues have overlapping keywords."""
+    issue1 = MagicMock()
+    issue1.pull_request = None
+    issue1.number = 2
+    issue1.title = "Update README"
+    issue1.body = "Fix typo"
+    issue1.html_url = "https://github.com/owner/repo/issues/2"
+    issue1.state = "open"
+    issue1.created_at = "2024-01-01T00:00:00Z"
+    issue1.user.login = "alice"
+
+    repo = MagicMock()
+    repo.full_name = "owner/repo"
+    repo.get_issues.return_value = [issue1]
+
+    issue_data = {"number": 1, "title": "Add WebSocket support", "body": "We need websockets"}
+
+    result = agent.find_similar_issues(repo, issue_data)
+    assert result == []
+
+
+def test_find_similar_issues_finds_match():
+    """Finds issues with overlapping significant words."""
+    issue1 = MagicMock()
+    issue1.pull_request = None
+    issue1.number = 2
+    issue1.title = "WebSocket support reconnecting"
+    issue1.body = "The websocket support needed urgently"
+    issue1.html_url = "https://github.com/owner/repo/issues/2"
+    issue1.state = "open"
+    issue1.created_at = "2024-01-15T00:00:00Z"
+    issue1.user.login = "bob"
+
+    repo = MagicMock()
+    repo.full_name = "owner/repo"
+    repo.get_issues.return_value = [issue1]
+
+    issue_data = {"number": 1, "title": "WebSocket support needed", "body": "Add WebSocket"}
+
+    result = agent.find_similar_issues(repo, issue_data)
+    assert len(result) == 1
+    assert result[0]["number"] == 2
+    assert result[0]["author"] == "bob"
+
+
+def test_find_similar_issues_skips_prs():
+    """Pull requests are skipped during similarity search."""
+    issue1 = MagicMock()
+    issue1.pull_request = True
+    issue1.number = 2
+    issue1.title = "WebSocket support"
+
+    repo = MagicMock()
+    repo.full_name = "owner/repo"
+    repo.get_issues.return_value = [issue1]
+
+    issue_data = {"number": 1, "title": "WebSocket support needed", "body": ""}
+
+    result = agent.find_similar_issues(repo, issue_data)
+    assert result == []
+
+
+def test_find_similar_issues_skips_current_issue():
+    """The issue being implemented is excluded from results."""
+    issue1 = MagicMock()
+    issue1.pull_request = None
+    issue1.number = 1
+    issue1.title = "WebSocket support needed"
+
+    repo = MagicMock()
+    repo.full_name = "owner/repo"
+    repo.get_issues.return_value = [issue1]
+
+    issue_data = {"number": 1, "title": "WebSocket support needed", "body": ""}
+
+    result = agent.find_similar_issues(repo, issue_data)
+    assert result == []
+
+
+def test_find_similar_issues_no_words():
+    """Very short titles with no 3+ char words return empty."""
+    repo = MagicMock()
+    repo.full_name = "owner/repo"
+
+    issue_data = {"number": 1, "title": "OK", "body": "hi"}
+
+    result = agent.find_similar_issues(repo, issue_data)
+    assert result == []
+
+
+def test_find_similar_issues_api_error(monkeypatch):
+    """Returns empty list gracefully on API error."""
+    repo = MagicMock()
+    repo.full_name = "owner/repo"
+    repo.get_issues.side_effect = RuntimeError("API down")
+
+    issue_data = {"number": 1, "title": "WebSocket support needed", "body": "Add support"}
+
+    result = agent.find_similar_issues(repo, issue_data)
+    assert result == []
+
+
+def test_format_similar_issues_comment():
+    """Formats similar issues into a readable markdown comment."""
+    similar = [
+        {"number": 2, "title": "WebSocket reconnection", "url": "https://ex.com/2",
+         "created_at": "2024-06-15", "author": "bob"},
+        {"number": 3, "title": "Add WebSocket endpoint", "url": "https://ex.com/3",
+         "created_at": "2024-07-01", "author": "alice"},
+    ]
+    issue_data = {"number": 1, "title": "WebSocket support"}
+
+    comment = agent._format_similar_issues_comment(issue_data, similar)
+    assert "#2" in comment
+    assert "#3" in comment
+    assert "bob" in comment
+    assert "alice" in comment
+    assert "duplicate" in comment.lower()
+    assert "agent-todo" in comment
+
+
+def test_run_agent_skips_on_similar_issues(monkeypatch):
+    """When similar issues are found, agent skips with a comment."""
+    monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
+        "maintainer": "test",
+        "agent": {
+            "implement": True,
+            "skip_keywords": [],
+            "similar_issue_check": True,
+            "model": "test",
+        },
+        "tone": {"style": "friendly", "language": "en"},
+        "style": {"code_style": "PEP8"},
+        "tech": {"preferred": [], "avoid": []},
+        "pr": {},
+    })
+
+    issue_obj = MagicMock()
+    similar_issue = MagicMock()
+    similar_issue.pull_request = None
+    similar_issue.number = 42
+    similar_issue.title = "WebSocket support reconnection fix"
+    similar_issue.body = "We need better websocket support"
+    similar_issue.created_at = "2024-06-01T00:00:00Z"
+    similar_issue.user.login = "bob"
+
+    repo_mock = MagicMock()
+    repo_mock.full_name = "owner/repo"
+    repo_mock.get_issue.return_value = issue_obj
+    repo_mock.get_issues.return_value = [similar_issue]
+    repo_mock.default_branch = "main"
+
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
+
+    monkeypatch.setattr(agent, "get_issue_data", lambda repo, num: {
+        "number": 1, "title": "WebSocket support needed", "body": "Need websockets",
+        "labels": ["agent-todo"], "comments": [],
+    })
+
+    result = agent.run_agent(
+        gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key",
+    )
+    assert result["skip"] is True
+    assert "similar" in result["reason"]
+    assert "similar_issues" in result
+    issue_obj.create_comment.assert_called()
+
+
+def test_run_agent_similar_issue_check_disabled(monkeypatch):
+    """When similar_issue_check is False, agent proceeds to implement."""
+    monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
+        "maintainer": "test",
+        "agent": {
+            "implement": True,
+            "skip_keywords": [],
+            "similar_issue_check": False,
+            "model": "test",
+            "smart_file_selection": False,
+            "max_fix_attempts": -1,
+        },
+        "tone": {"style": "friendly", "language": "en"},
+        "style": {"code_style": "PEP8"},
+        "tech": {"preferred": [], "avoid": []},
+        "pr": {},
+    })
+
+    issue_obj = MagicMock()
+    repo_mock = MagicMock()
+    repo_mock.full_name = "owner/repo"
+    repo_mock.get_issue.return_value = issue_obj
+    repo_mock.default_branch = "main"
+
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
+
+    monkeypatch.setattr(agent, "get_issue_data", lambda repo, num: {
+        "number": 1, "title": "Test issue", "body": "Test body",
+        "labels": ["agent-todo"], "comments": [],
+    })
+
+    monkeypatch.setattr(agent, "collect_repo_files",
+                        lambda max_files=60, target_tokens=None: {"a.py": "code"})
+    monkeypatch.setattr(agent, "build_context_string",
+                        lambda files: "ctx")
+
+    should_proceed = False
+
+    def fake_call_llm(*args, **kwargs):
+        nonlocal should_proceed
+        should_proceed = True
+        return {
+            "skip": True, "reason": "Test completed", "summary": "",
+            "branch_name": "", "commit_message": "", "edits": [], "changes": {}, "new_files": {},
+        }, MagicMock(prompt_tokens=0, completion_tokens=0, total_tokens=0, cost_usd=0)
+
+    monkeypatch.setattr(agent, "call_llm", fake_call_llm)
+
+    result = agent.run_agent(
+        gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key",
+    )
+    assert should_proceed is True
+    assert "similar" not in result.get("reason", "")

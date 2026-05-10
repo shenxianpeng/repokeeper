@@ -38,6 +38,8 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      - uses: actions/checkout@v6
+
       - name: Determine context
         id: ctx
         run: |

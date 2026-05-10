@@ -97,6 +97,14 @@ def get_pr_data(repo: Any, pr_number: int) -> dict[str, Any]:
     }
 
 
+SEVERITY_ICONS: dict[str, str] = {
+    "critical": "🔴",
+    "major": "🟠",
+    "minor": "🟡",
+    "nit": "⚪",
+}
+
+
 def _convert_issue_to_review_comment(
     issue: dict[str, Any],
 ) -> dict[str, Any]:
@@ -106,6 +114,9 @@ def _convert_issue_to_review_comment(
     ``message`` → ``body``, ``suggestion`` → suggestion block in body.
     Uses ``side`` = "RIGHT" for the new/changed side of the diff.
 
+    The inline comment body includes a severity indicator so reviewers
+    can gauge importance at a glance.
+
     Args:
         issue: An issue dict from the LLM review response with keys
                ``file``, ``line``, ``message``, ``suggestion``.
@@ -114,11 +125,18 @@ def _convert_issue_to_review_comment(
         Dict suitable for GitHub's review ``comments[]`` parameter:
         ``path``, ``line``, ``side``, ``body``.
     """
-    body_parts = [issue.get("message", "")]
+    severity = issue.get("severity", "minor")
+    icon = SEVERITY_ICONS.get(severity, "⚪")
+    body_parts = [f"{icon} **{severity}**: {issue.get('message', '')}"]
     suggestion = issue.get("suggestion", "")
     if suggestion:
         body_parts.append("")
-        body_parts.append(f"**Suggestion:**\n```suggestion\n{suggestion}\n```")
+        # If suggestion already contains code fences, use as-is;
+        # otherwise wrap in a suggestion block.
+        if "```" in suggestion:
+            body_parts.append(f"**Suggestion:**\n{suggestion}")
+        else:
+            body_parts.append(f"**Suggestion:**\n```suggestion\n{suggestion}\n```")
     return {
         "path": issue.get("file", ""),
         "line": max(1, int(issue.get("line", 1))),
@@ -293,8 +311,19 @@ def build_review_context_string(
 
 REVIEW_SYSTEM_PROMPT = """\
 You are an expert software engineer conducting a thorough code review.
-Your job is to analyze a GitHub pull request and provide a structured,
-actionable review for the project maintainer.
+Your job is to analyze a GitHub pull request and provide structured,
+actionable feedback for the project maintainer.
+
+IMPORTANT — Your output is posted as a GitHub Pull Request Review with two parts:
+1. A short overview comment (your "summary", "positive_notes", etc.)
+2. Inline line-level comments (each item in "issues" becomes a comment on
+   the exact line you specify via the GitHub Review API)
+
+Because each issue becomes a standalone inline comment, every issue MUST:
+- Be self-contained: a reviewer reading only that inline comment must understand it
+- Include enough context in "message" to stand alone (mention variable names, etc.)
+- Provide a concrete "suggestion" — use code blocks in ```suggestion fences when helpful
+- Reference the exact line number where the issue is in the NEW version of the file
 
 Review criteria:
 - Code correctness: Does the code do what it claims? Are there bugs?
@@ -309,28 +338,22 @@ Respond with a single valid JSON object — no markdown fences, no explanation:
 
 {
   "approval_recommendation": "approve | request_changes | comment",
-  "summary": "One paragraph overall assessment.",
+  "summary": "One concise paragraph (2-3 sentences) summarizing the overall review.",
   "issues": [
     {
       "severity": "critical | major | minor | nit",
       "file": "path/to/file.py",
       "line": 42,
-      "message": "Clear description of the problem.",
-      "suggestion": "How to fix or improve (code example if helpful)."
-    }
-  ],
-  "style_violations": [
-    {
-      "file": "path/to/file.py",
-      "description": "Style issue found."
+      "message": "Self-contained description of the problem. Assume the reviewer sees only this comment.",
+      "suggestion": "How to fix — code example in ```suggestion fences if it's a code change."
     }
   ],
   "positive_notes": [
-    "What the PR does well."
+    "What the PR does well — keep brief."
   ],
-  "test_recommendation": "Suggested tests that should be added or none if adequate.",
+  "test_recommendation": "Suggested tests, or empty string if adequate.",
   "security_concerns": [
-    "Any security issues found."
+    "Any security issues found — one sentence each."
   ]
 }
 
@@ -339,7 +362,8 @@ Approval guidelines:
 - "request_changes": Has bugs, security issues, or significant style violations.
 - "comment": No blocking issues, but has suggestions for improvement.
 
-Be concise and actionable. Focus on what matters most to the maintainer.
+Keep the summary short. Let the inline comments carry the details.
+Do NOT duplicate inline comment content in the summary.
 """
 
 
@@ -468,7 +492,15 @@ def format_review_comment(
     usage: TokenUsage,
     profile: dict[str, Any],
 ) -> str:
-    """Format the LLM review response into a beautiful markdown comment.
+    """Format the LLM review response into a concise overview comment.
+
+    The overview is intentionally short — detailed findings are posted as
+    inline line-level comments via the GitHub Review API.  This function
+    only produces the summary body of the review.
+
+    Design follows CodeRabbit / GitHub Copilot Code Review patterns:
+    one-line header, brief summary, compact per-issue bullet list,
+    and short sections for security, testing, and highlights.
 
     Args:
         pr_data: PR data dict.
@@ -477,79 +509,79 @@ def format_review_comment(
         profile: Maintainer profile.
 
     Returns:
-        Markdown string for the PR comment.
+        Markdown string for the PR review body.
     """
     recommendation = review.get("approval_recommendation", "comment")
-    emoji_map = {
-        "approve": "✅",
-        "request_changes": "🔴",
-        "comment": "💬",
-    }
-    emoji = emoji_map.get(recommendation, "💬")
+    rec_emoji = {"approve": "✅", "request_changes": "🔴", "comment": "💬"}.get(
+        recommendation, "💬"
+    )
 
     lines = [
         "## 🤖 RepoKeeper Code Review",
         "",
-        f"**PR:** #{pr_data['number']} — {pr_data['title']}",
-        f"**Author:** @{pr_data['author']} · "
+        f"**#{pr_data['number']} — {pr_data['title']}** · "
+        f"@{pr_data['author']} · "
         f"{pr_data['changed_files_count']} files · +{pr_data['additions']}/-{pr_data['deletions']}",
         "",
-        f"### {emoji} Recommendation: **{recommendation.replace('_', ' ').title()}**",
-        "",
-        review.get("summary", "(No summary provided)"),
+        f"{rec_emoji} **{recommendation.replace('_', ' ').title()}** — "
+        f"{review.get('summary', '')}",
         "",
     ]
 
-    # ── Issues ──
+    # ── Issues (compact, one line each — details are in inline comments) ──
     issues = review.get("issues", [])
     if issues:
-        lines.append("### 🔍 Issues Found")
-        lines.append("")
-        lines.append("| Severity | File | Line | Issue |")
-        lines.append("|----------|------|------|-------|")
-        for issue in issues[:30]:
-            sev_emoji = {"critical": "🔴", "major": "🟠", "minor": "🟡", "nit": "⚪"}.get(
-                issue.get("severity", "minor"), "⚪"
-            )
-            msg = issue.get("message", "").replace("|", "\\|")[:120]
-            suggestion = issue.get("suggestion", "")
-            display = f"{msg}"
-            if suggestion:
-                display += f" — *{suggestion[:200]}*"
-            lines.append(
-                f"| {sev_emoji} {issue.get('severity', 'minor')} "
-                f"| `{issue.get('file', '?')}` "
-                f"| {issue.get('line', '-')} "
-                f"| {display} |"
-            )
+        critical = sum(1 for i in issues if i.get("severity") == "critical")
+        major = sum(1 for i in issues if i.get("severity") == "major")
+        minor = sum(1 for i in issues if i.get("severity") == "minor")
+        nit = sum(1 for i in issues if i.get("severity") == "nit")
+        other = len(issues) - critical - major - minor - nit
+
+        counts_parts = []
+        if critical:
+            counts_parts.append(f"{critical} critical")
+        if major:
+            counts_parts.append(f"{major} major")
+        if minor:
+            counts_parts.append(f"{minor} minor")
+        if nit:
+            counts_parts.append(f"{nit} nit")
+        if other:
+            counts_parts.append(f"{other} other")
+
+        lines.append(f"### 🔍 {len(issues)} suggestion{'s' if len(issues) != 1 else ''} ({', '.join(counts_parts)})")
         lines.append("")
 
-        # Detailed issues
-        for i, issue in enumerate(issues[:15], 1):
-            lines.append(f"#### Issue {i}: [{issue.get('severity', 'minor')}] {issue.get('file', '?')}:{issue.get('line', '-')}")
-            lines.append(f"**Problem:** {issue.get('message', '')}")
-            if issue.get("suggestion"):
-                lines.append(f"**Suggestion:** {issue.get('suggestion')}")
-            lines.append("")
+        # Group issues by file for a CodeRabbit-style per-file scan
+        by_file: dict[str, list[dict[str, Any]]] = {}
+        for issue in issues:
+            fname = issue.get("file", "?")
+            by_file.setdefault(fname, []).append(issue)
+
+        for fname in sorted(by_file):
+            for issue in by_file[fname]:
+                sev = issue.get("severity", "minor")
+                icon = SEVERITY_ICONS.get(sev, "⚪")
+                msg = issue.get("message", "")[:120]
+                line = issue.get("line", "-")
+                # Escape pipe for markdown
+                msg = msg.replace("|", "\\|")
+                lines.append(f"- {icon} `{fname}:{line}` — {msg}")
+
+        lines.append("")
+        lines.append(
+            "*Details for each suggestion are posted as inline comments "
+            "on the specific lines above.*"
+        )
+        lines.append("")
     else:
-        lines.append("### ✨ No Issues Found")
-        lines.append("")
-        lines.append("No code issues detected by automated review.")
-        lines.append("")
-
-    # ── Style violations ──
-    style_violations = review.get("style_violations", [])
-    if style_violations:
-        lines.append("### 🎨 Style Violations")
-        lines.append("")
-        for sv in style_violations[:10]:
-            lines.append(f"- **`{sv.get('file', '?')}`**: {sv.get('description', '')}")
+        lines.append("✅ No issues detected. Clean PR.")
         lines.append("")
 
     # ── Security ──
     security = review.get("security_concerns", [])
     if security:
-        lines.append("### 🔒 Security Concerns")
+        lines.append("### 🔒 Security")
         lines.append("")
         for s in security[:5]:
             lines.append(f"- ⚠️ {s}")
@@ -558,7 +590,7 @@ def format_review_comment(
     # ── Test recommendation ──
     test_rec = review.get("test_recommendation", "")
     if test_rec:
-        lines.append("### 🧪 Test Recommendation")
+        lines.append("### 🧪 Testing")
         lines.append("")
         lines.append(test_rec)
         lines.append("")
@@ -566,26 +598,22 @@ def format_review_comment(
     # ── Positive notes ──
     positive = review.get("positive_notes", [])
     if positive:
-        lines.append("### 👏 Positive Highlights")
+        lines.append("### ✅ Highlights")
         lines.append("")
-        for note in positive[:5]:
-            lines.append(f"- ✅ {note}")
+        for note in positive[:3]:
+            lines.append(f"- {note}")
         lines.append("")
 
-    # ── Cost note ──
+    # ── Cost / footer ──
+    footer_parts = []
     if usage.total_tokens > 0:
-        lines.append(
-            f"---\n"
-            f"**Estimated cost:** ~${usage.cost_usd:.6f} "
-            f"({usage.total_tokens} tokens, {usage.model})"
-        )
-
-    lines.append("")
-    lines.append(
-        "*🤖 Generated by [RepoKeeper](https://github.com/shenxianpeng/repokeeper) "
-        "— AI-powered open source maintenance. "
-        "This is an automated suggestion, not a substitute for human review.*"
+        cost = f"~${usage.cost_usd:.6f}" if usage.cost_usd > 0 else "—"
+        footer_parts.append(f"{cost} · {usage.total_tokens} tokens · {usage.model}")
+    footer_parts.append(
+        "[RepoKeeper](https://github.com/shenxianpeng/repokeeper) · "
+        "AI review — not a substitute for human review"
     )
+    lines.append(f"---\n*🤖 {' · '.join(footer_parts)}*")
 
     return "\n".join(lines)
 

@@ -415,7 +415,7 @@ def test_format_review_comment_approve():
     assert "✅" in comment
     assert "Approve" in comment
     assert "Looks great!" in comment
-    assert "No Issues Found" in comment
+    assert "No issues detected" in comment
     assert "Well tested" in comment
     assert "$0.001000" in comment
 
@@ -455,8 +455,7 @@ def test_format_review_comment_request_changes():
     assert "🔴" in comment
     assert "Request Changes" in comment
     assert "SQL injection vulnerability" in comment
-    assert "Use parameterized queries" in comment
-    assert "Line too long" in comment
+    # Suggestions appear only in inline comments, not the overview body
     assert "Add tests for the new endpoint" in comment
     assert "Possible SQL injection" in comment
 
@@ -831,7 +830,7 @@ def test_format_review_comment_no_issues_empty_lists():
     usage = TokenUsage()
 
     comment = review.format_review_comment(pr_data, review_data, usage, {})
-    assert "No Issues Found" in comment
+    assert "No issues detected" in comment
     assert "RepoKeeper Code Review" in comment
 
 
@@ -850,7 +849,7 @@ def test_format_review_comment_with_security_concerns():
     usage = TokenUsage()
 
     comment = review.format_review_comment(pr_data, review_data, usage, {})
-    assert "Security Concerns" in comment
+    assert "🔒 Security" in comment
     assert "Hardcoded secret" in comment
 
 

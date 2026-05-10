@@ -220,6 +220,57 @@ def cmd_describe(args: argparse.Namespace) -> int:
     return 0
 
 
+def _check_llm_connectivity(api_key: str, failed: int, warnings: int) -> tuple[int, int]:
+    """Validate the LLM API key by sending a minimal chat completion request.
+
+    Sends a single-token request (< $0.0001) to verify the key is valid
+    and the API endpoint is reachable.  On failure the check is a warning,
+    not a hard fail, since the key might be valid but blocked on this network.
+
+    Args:
+        api_key: LLM API key.
+        failed: Current failure counter.
+        warnings: Current warning counter.
+
+    Returns:
+        Updated ``(failed, warnings)`` tuple.
+    """
+    from openai import OpenAI
+
+    base_url = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
+
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=1,
+            temperature=0,
+        )
+        if resp.choices and resp.choices[0].message.content is not None:
+            _print_check(True, "LLM API connectivity", f"{base_url}")
+        else:
+            _print_check(
+                False,
+                "LLM API connectivity",
+                "Empty response from API",
+                status_if_false="warn",
+            )
+            warnings += 1
+    except Exception as exc:
+        msg = str(exc)[:120]
+        _print_check(
+            False,
+            "LLM API connectivity",
+            f"{base_url} — {msg}",
+            status_if_false="warn",
+        )
+        warnings += 1
+        _print_fix("verify the API key is valid and the base URL is reachable")
+
+    return failed, warnings
+
+
 def _has_env(name: str) -> bool:
     return bool(os.environ.get(name))
 
@@ -413,6 +464,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 "install with: pip install 'repokeeper[anthropic]'",
                 status_if_false="warn",
             )
+
+    # ── LLM connectivity check ──
+    if llm_key:
+        actual_llm_key = (
+            os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY", "")
+        )
+        failed, warnings = _check_llm_connectivity(actual_llm_key, failed, warnings)
 
     repo_slug = args.repo or os.environ.get("GITHUB_REPOSITORY")
     _print_check(bool(repo_slug), "Repository slug", "pass --repo owner/name or set GITHUB_REPOSITORY")

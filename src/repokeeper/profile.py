@@ -270,6 +270,7 @@ maintainer: your-github-username
 # ── Agent behavior ──
 # agent:
 #   model: deepseek-chat      # deepseek-chat | deepseek-reasoner | gpt-4o | gpt-4o-mini
+#   backend: native           # native | pi  (pi = autonomous agent loop for complex tasks)
 #   implement: true           # allow automatic PR generation
 #   max_context_files: 60     # max files to send to LLM
 #   max_context_tokens: null  # token budget (null = auto, or e.g. 25000)

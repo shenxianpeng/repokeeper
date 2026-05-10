@@ -47,6 +47,7 @@ commit_preprocessors = [
   { pattern = "^Update\\s+(.*)", replace = "docs: Update $1" },
 ]
 commit_parsers = [
+  { message = "chore.*CHANGELOG", skip = true },
   { message = "^security", group = "Security" },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },

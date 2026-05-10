@@ -54,44 +54,39 @@ issues, bumping dependencies, diagnosing CI, responding to the community?
 
 ```mermaid
 flowchart TD
-    issues["🐙 Issues"]
-    prs["🐙 Pull Requests"]
-    disc["🐙 Discussions"]
-    comments["💬 /repokeeper"]
+    subgraph T["Triggers"]
+        direction LR
+        issues["🐙 Issues"]
+        prs["🐙 Pull Requests"]
+        disc["🐙 Discussions"]
+        cmd["💬 /repokeeper"]
+    end
 
-    profile["📋 Maintainer Profile<br/>repokeeper.yml"]:::config
+    T --> M
 
-    radar["🔭 Community Radar<br/>monitors community"]
-    patrol["🔍 Daily Patrol<br/>deps · CI · stale issues"]
-    agent["🤖 Implementation Agent<br/>issue → implement → PR"]
-    labeler["🏷️ Auto-Labeler<br/>classify issues & PRs"]
-    reviewer["📝 Code Review Agent<br/>inline PR review"]
+    subgraph M["RepoKeeper Modules"]
+        direction LR
+        radar["🔭 Radar<br/>community monitoring"]
+        patrol["🔍 Patrol<br/>deps · CI · stale"]
+        agent["🤖 Agent<br/>native · Pi backend"]
+        labeler["🏷️ Labeler<br/>auto-classify"]
+        review["📝 Review<br/>inline comments"]
+    end
 
-    llm["🧠 LLM<br/>DeepSeek · OpenAI · Claude"]
+    profile["📋 repokeeper.yml"]:::config
+    profile -.-> M
 
-    newpr["✅ Verified PRs"]
-    review["📝 Inline Reviews"]
-    applied["🏷 Applied Labels"]
-    notify["📬 Email · Telegram · WeChat"]
+    M <--> llm["🧠 LLM · Pi<br/>DeepSeek · OpenAI · Claude"]
 
-    issues --> radar & agent & labeler
-    prs --> reviewer & labeler
-    disc --> radar
-    comments --> agent & reviewer
+    subgraph O["Outputs"]
+        direction LR
+        pr["✅ PRs"]
+        rev["📝 Reviews"]
+        lbl["🏷 Labels"]
+        notify["📬 Notify"]
+    end
 
-    profile -. "configures" .-> radar
-    profile -.-> patrol
-    profile -.-> agent
-    profile -.-> labeler
-    profile -.-> reviewer
-
-    radar & patrol & agent & labeler & reviewer --> llm
-    llm --> radar & patrol & agent & labeler & reviewer
-
-    agent & patrol --> newpr
-    reviewer --> review
-    labeler --> applied
-    radar & patrol --> notify
+    M --> O
 
     classDef config fill:#f9f0ff,stroke:#6e40c9,stroke-width:2px
 ```

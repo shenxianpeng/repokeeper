@@ -53,65 +53,47 @@ issues, bumping dependencies, diagnosing CI, responding to the community?
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph GitHub[" GitHub Events "]
-        issues["Issues"]
-        prs["Pull Requests"]
-        disc["Discussions"]
-        comments["Comments · @repokeeper"]
-    end
+flowchart TD
+    issues["🐙 Issues"]
+    prs["🐙 Pull Requests"]
+    disc["🐙 Discussions"]
+    comments["💬 @repokeeper"]
 
-    subgraph RepoKeeper[" RepoKeeper Modules "]
-        profile["📋 Maintainer Profile<br/>repokeeper.yml"]
+    profile["📋 Maintainer Profile<br/>repokeeper.yml"]:::config
 
-        radar["🔭 Community Radar"]
-        patrol["🔍 Daily Patrol"]
-        agent["🤖 Implementation Agent"]
-        labeler["🏷️ Auto-Labeler"]
-        reviewer["📝 Code Review Agent"]
-    end
+    radar["🔭 Community Radar<br/>monitors community"]
+    patrol["🔍 Daily Patrol<br/>deps · CI · stale issues"]
+    agent["🤖 Implementation Agent<br/>issue → implement → PR"]
+    labeler["🏷️ Auto-Labeler<br/>classify issues & PRs"]
+    reviewer["📝 Code Review Agent<br/>inline PR review"]
 
     llm["🧠 LLM<br/>DeepSeek · OpenAI · Claude"]
 
-    subgraph Output[" Output "]
-        newpr["Verified PRs"]
-        review["Inline Reviews"]
-        applied["Applied Labels"]
-        notify["Email · Telegram · WeChat"]
-    end
+    newpr["✅ Verified PRs"]
+    review["📝 Inline Reviews"]
+    applied["🏷 Applied Labels"]
+    notify["📬 Email · Telegram · WeChat"]
 
-    issues --> radar
-    issues --> agent
-    issues --> labeler
+    issues --> radar & agent & labeler
+    prs --> reviewer & labeler
     disc --> radar
-    prs --> reviewer
-    prs --> labeler
-    comments --> agent
-    comments --> reviewer
+    comments --> agent & reviewer
 
-    profile -.-> radar
+    profile -. "configures" .-> radar
     profile -.-> patrol
     profile -.-> agent
     profile -.-> labeler
     profile -.-> reviewer
 
-    radar --> llm
-    patrol --> llm
-    agent --> llm
-    labeler --> llm
-    reviewer --> llm
-    llm --> radar
-    llm --> patrol
-    llm --> agent
-    llm --> labeler
-    llm --> reviewer
+    radar & patrol & agent & labeler & reviewer --> llm
+    llm --> radar & patrol & agent & labeler & reviewer
 
-    agent --> newpr
-    patrol --> newpr
+    agent & patrol --> newpr
     reviewer --> review
     labeler --> applied
-    radar --> notify
-    patrol --> notify
+    radar & patrol --> notify
+
+    classDef config fill:#f9f0ff,stroke:#6e40c9,stroke-width:2px
 ```
 
 ## Adopt in 60 Seconds

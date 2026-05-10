@@ -10,7 +10,6 @@
 [![Python](https://img.shields.io/pypi/pyversions/repokeeper.svg)](https://pypi.org/project/repokeeper/)
 [![RepoKeeper](https://img.shields.io/badge/%F0%9F%A4%96-RepoKeeper-6e40c9)](https://github.com/shenxianpeng/repokeeper)
 [![Docs](https://img.shields.io/badge/docs-mkdocs--ng-4051b5)](https://shenxianpeng.github.io/repokeeper/)
-[![Discussions](https://img.shields.io/badge/Discussions-Q%26A-6e40c9?logo=github)](https://github.com/shenxianpeng/repokeeper/discussions)
 
 **AI-powered open source maintainer agent. Reads issues, writes code, opens PRs — 24/7.**
 
@@ -172,11 +171,6 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
 | [Code Review Agent](https://shenxianpeng.github.io/repokeeper/module-6-review/) | Inline review, PR descriptions, incremental re-review |
 | [Benchmarks](https://shenxianpeng.github.io/repokeeper/benchmarks/) | Cost and performance estimates by scenario |
-
-## Community
-
-Ask questions, share your RepoKeeper setup, or discuss maintainer automation
-strategies in **[GitHub Discussions](https://github.com/shenxianpeng/repokeeper/discussions)**.
 
 ## Contributing
 

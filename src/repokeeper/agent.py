@@ -815,11 +815,18 @@ def _run_pi(
     prompt_file = Path(workdir) / ".repokeeper-pi-prompt.md"
     prompt_file.write_text(prompt, encoding="utf-8")
 
+    # Pi needs provider-specific API key env vars; --api-key alone may not
+    # work for all providers.  Set the appropriate env var for deepseek.
+    pi_model = _pi_model_arg(model)
+    env = os.environ.copy()
+    if pi_model.startswith("deepseek/"):
+        env["DEEPSEEK_API_KEY"] = api_key
+
     try:
         result = subprocess.run(  # noqa: S603
             [
                 "pi",
-                "--model", _pi_model_arg(model),
+                "--model", pi_model,
                 "--api-key", api_key,
                 f"@{prompt_file}",
             ],
@@ -828,6 +835,7 @@ def _run_pi(
             text=True,
             timeout=timeout,
             check=False,
+            env=env,
         )
         return result
     finally:

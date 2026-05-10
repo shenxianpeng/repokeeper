@@ -50,6 +50,70 @@ issues, bumping dependencies, diagnosing CI, responding to the community?
 - **🏷️ Auto-Labeler** — AI classifies new issues and PRs, picks labels from your repo's existing set (matching naming conventions), and creates new labels only when needed — with consistent style and descriptions. Supports issue and PR labeling with diff-aware classification.
 - **👤 Maintainer Profile** — One YAML file describing your code style, tone, PR standards. *Or skip it — defaults work.*
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph GitHub[" GitHub Events "]
+        issues["Issues"]
+        prs["Pull Requests"]
+        disc["Discussions"]
+        comments["Comments · @repokeeper"]
+    end
+
+    subgraph RepoKeeper[" RepoKeeper Modules "]
+        profile["📋 Maintainer Profile<br/>repokeeper.yml"]
+
+        radar["🔭 Community Radar"]
+        patrol["🔍 Daily Patrol"]
+        agent["🤖 Implementation Agent"]
+        labeler["🏷️ Auto-Labeler"]
+        reviewer["📝 Code Review Agent"]
+    end
+
+    llm["🧠 LLM<br/>DeepSeek · OpenAI · Claude"]
+
+    subgraph Output[" Output "]
+        newpr["Verified PRs"]
+        review["Inline Reviews"]
+        applied["Applied Labels"]
+        notify["Email · Telegram · WeChat"]
+    end
+
+    issues --> radar
+    issues --> agent
+    issues --> labeler
+    disc --> radar
+    prs --> reviewer
+    prs --> labeler
+    comments --> agent
+    comments --> reviewer
+
+    profile -.-> radar
+    profile -.-> patrol
+    profile -.-> agent
+    profile -.-> labeler
+    profile -.-> reviewer
+
+    radar --> llm
+    patrol --> llm
+    agent --> llm
+    labeler --> llm
+    reviewer --> llm
+    llm --> radar
+    llm --> patrol
+    llm --> agent
+    llm --> labeler
+    llm --> reviewer
+
+    agent --> newpr
+    patrol --> newpr
+    reviewer --> review
+    labeler --> applied
+    radar --> notify
+    patrol --> notify
+```
+
 ## Adopt in 60 Seconds
 
 Three ways to onboard — pick one:

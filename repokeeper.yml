@@ -59,6 +59,7 @@ notifications:
 # ── Agent ──
 agent:
   model: deepseek-chat       # deepseek-chat | deepseek-reasoner | gpt-4o
+  backend: pi                # native | pi
   implement: true
   max_context_files: 40
   temperature: 0.1

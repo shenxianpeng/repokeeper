@@ -1053,6 +1053,75 @@ def run_fix_pr(
         )
         logger.info("Fix context: %d files, ~%d tokens", len(files), estimate_tokens(files))
 
+        # ── Backend: Pi or native ──
+        backend = profile.get("agent", {}).get("backend", "native")
+        if backend == "pi":
+            model = profile.get("agent", {}).get("model", "deepseek-chat")
+            pi_prompt = (
+                "You are an expert software engineer fixing issues in a PR "
+                "based on the maintainer's review feedback.\n\n"
+                + context_str
+                + "\n\nRead the feedback above. Make targeted, minimal fixes "
+                "that address ONLY the issues raised. After finishing, output:\n"
+                '{"success": true, "summary": "one sentence", '
+                '"commit_message": "fix: short message"}'
+            )
+
+            # Checkout the PR branch so Pi modifies the right code.
+            head_branch = pr_data_from_gh["head_branch"]
+            local_branch = f"repokeeper-fix-{pr_number}"
+            _git("fetch", "origin", f"pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}")
+            _git("checkout", "-b", local_branch, f"origin/pr/{pr_number}")
+
+            logger.info("Running Pi for PR fix on branch %s (%s)...", local_branch, model)
+            pi_result = _run_pi(pi_prompt, model, llm.api_key, workdir=".")
+            if pi_result.returncode != 0:
+                logger.warning("Pi exited with code %d", pi_result.returncode)
+                logger.debug("Pi stderr: %s", pi_result.stderr[-500:])
+            logger.info("Pi stdout (last 300): %s", pi_result.stdout[-300:])
+
+            result = _parse_pi_result(pi_result.stdout)
+            if result.get("skip"):
+                reason = result.get("reason", "Pi could not fix this PR.")
+                pr_obj.create_issue_comment(
+                    f"🤖 **RepoKeeper** (Pi) could not fix this automatically:\n\n> {reason}\n\n"
+                    f"Please fix manually or provide more specific feedback."
+                )
+                return {"skip": True, "reason": reason}
+
+            # Detect changes made by Pi
+            changed = _git("diff", "--name-only", capture=True, check=False).stdout.strip()
+            changed_files_list = changed.splitlines() if changed else []
+            if not changed_files_list:
+                logger.warning("Pi produced no file changes")
+                pr_obj.create_issue_comment(
+                    "🤖 **RepoKeeper** (Pi) finished but produced no file changes.\n\n"
+                    "Please review the feedback or fix manually."
+                )
+                return {"skip": True, "reason": "No file changes produced by Pi"}
+
+            # Pi changes are already on disk; let fix_and_push pick them up.
+            result["branch_name"] = pr_data_from_gh["head_branch"]
+            head_branch = pr_data_from_gh["head_branch"]
+            assert gh_token is not None
+            assert repository is not None
+
+            branch, changed_files = fix_and_push(
+                result, gh_token, repository, head_branch, pr_number,
+                already_checked_out=True,
+            )
+
+            pr_obj.create_issue_comment(
+                f"🤖 **RepoKeeper** (Pi) applied fixes based on your feedback.\n\n"
+                f"**Summary:** {result['summary']}\n"
+                f"**Changed files:** {', '.join(f'`{f}`' for f in changed_files) or '(none)'}\n\n"
+                f"Please re-review the changes."
+            )
+
+            logger.info("Pi fix pushed to %s (%d files)", branch, len(changed_files))
+            return {"skip": False, "pr_url": pr_obj.html_url, "fix_applied": True}
+
+        # Native backend
         result, fix_usage = _call_llm_for_fix(context_str, profile, llm)
 
         usage = TokenUsage(model=fix_usage.model)

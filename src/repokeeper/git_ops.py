@@ -339,6 +339,8 @@ def fix_and_push(
     repository: str,
     head_branch: str,
     pr_number: int,
+    *,
+    already_checked_out: bool = False,
 ) -> tuple[str, list[str]]:
     """Apply fixes to an existing PR branch and push.
 
@@ -353,6 +355,8 @@ def fix_and_push(
         repository: Repository slug (``owner/repo``).
         head_branch: The PR's head branch name (from PR data).
         pr_number: PR number (used for local temp branch name).
+        already_checked_out: When True, skip fetch+checkout (caller already
+                             checked out the PR branch).
 
     Returns:
         Tuple of ``(branch_name, list_of_changed_files)``.
@@ -365,9 +369,9 @@ def fix_and_push(
     git("config", "user.email", "repokeeper[bot]@users.noreply.github.com")
     git("config", "user.name", "repokeeper[bot]")
 
-    # Fetch PR head for the target branch.
-    git("fetch", "origin", "pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}")
-    git("checkout", "-b", local_branch, "origin/pr/{pr_number}")
+    if not already_checked_out:
+        git("fetch", "origin", f"pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}")
+        git("checkout", "-b", local_branch, "origin/pr/{pr_number}")
 
     apply_implementation_changes(implementation)
 

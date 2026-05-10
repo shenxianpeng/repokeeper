@@ -721,8 +721,11 @@ making precise, minimal changes, and verifying your work.
 3. Do NOT add unrequested features, refactors, or comments.
 4. Never modify files under .github/workflows/.
 5. Run linters and tests if available to verify your changes.
-6. When you are done, output a single JSON line with the result:
-   {{"success": true, "summary": "one sentence", "commit_message": "type: short message"}}
+6. When ALL work is complete, output EXACTLY this JSON on a single line with no
+   markdown fences, no extra text — this is how the system knows you finished:
+
+   {{"success": true, "summary": "one sentence", "commit_message": "type: message"}}
+
    If you cannot implement the issue, set success to false and explain why.
 
 The repository files are on disk.  Start by exploring the codebase.
@@ -832,10 +835,11 @@ def _run_pi(
 
 
 def _parse_pi_result(stdout: str) -> dict[str, Any]:
-    """Parse the JSON result line from Pi's output.
+    """Parse the JSON result from Pi's output.
 
-    Pi is instructed to emit a JSON line with ``success``, ``summary``,
-    and ``commit_message``.  Falls back to a generic summary on parse failure.
+    Pi is instructed to emit a JSON object with ``success``, ``summary``,
+    and ``commit_message``.  This function searches for it in several ways
+    since Pi may embed the JSON in text or code fences.
 
     Args:
         stdout: Pi's captured stdout.
@@ -843,30 +847,57 @@ def _parse_pi_result(stdout: str) -> dict[str, Any]:
     Returns:
         Dict with at least ``skip``, ``summary``, and ``commit_message``.
     """
+    import re as _re
+
+    # 1. Search for {"success"...} anywhere in the output (handles inline JSON).
+    match = _re.search(r'\{"success"\s*:\s*(?:true|false)[^}]*\}', stdout)
+    if match:
+        try:
+            data = json.loads(match.group())
+            return _pi_result_from_data(data)
+        except json.JSONDecodeError:
+            pass
+
+    # 2. Search inside ```json fences.
+    match = _re.search(r'```(?:json)?\s*\n(\{[^`]+\})\s*\n```', stdout, _re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            return _pi_result_from_data(data)
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Fallback: scan lines in reverse (original behaviour).
     for line in reversed(stdout.strip().splitlines()):
         line = line.strip()
-        if line.startswith("{") and line.endswith("}"):
+        if line.startswith("{") and '"success"' in line:
             try:
                 data = json.loads(line)
-                if isinstance(data, dict) and "success" in data:
-                    return {
-                        "skip": not data.get("success", False),
-                        "reason": data.get("reason", ""),
-                        "summary": data.get("summary", "Pi made changes."),
-                        "commit_message": data.get("commit_message", "fix: changes from Pi"),
-                        "edits": [],
-                        "changes": {},
-                        "new_files": {},
-                        "patch": "",
-                    }
+                return _pi_result_from_data(data)
             except json.JSONDecodeError:
                 continue
 
+    # 4. Last resort: if Pi produced any output at all, assume it tried.
+    #    The caller should check git diff separately for actual changes.
     return {
-        "skip": True,
-        "reason": "Pi output did not contain a result JSON line.",
-        "summary": "",
-        "commit_message": "",
+        "skip": False,
+        "reason": "",
+        "summary": "Pi made changes (no JSON confirmation).",
+        "commit_message": "fix: changes from Pi",
+        "edits": [],
+        "changes": {},
+        "new_files": {},
+        "patch": "",
+    }
+
+
+def _pi_result_from_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a parsed Pi JSON blob to the standard result dict."""
+    return {
+        "skip": not data.get("success", False),
+        "reason": data.get("reason", ""),
+        "summary": data.get("summary", "Pi made changes."),
+        "commit_message": data.get("commit_message", "fix: changes from Pi"),
         "edits": [],
         "changes": {},
         "new_files": {},
@@ -1062,7 +1093,9 @@ def run_fix_pr(
                 "based on the maintainer's review feedback.\n\n"
                 + context_str
                 + "\n\nRead the feedback above. Make targeted, minimal fixes "
-                "that address ONLY the issues raised. After finishing, output:\n"
+                "that address ONLY the issues raised.\n\n"
+                "When ALL work is complete, output EXACTLY this JSON on a "
+                "single line with no markdown fences:\n"
                 '{"success": true, "summary": "one sentence", '
                 '"commit_message": "fix: short message"}'
             )

@@ -58,6 +58,8 @@ nav:
     - Maintainer Profile: module-4-profile.md
     - Auto-Labeler: module-5-labeler.md
     - Code Review Agent: module-6-review.md
+  - Community:
+    - GitHub Discussions: https://github.com/shenxianpeng/repokeeper/discussions
   - Reference:
     - Changelog: changelog.md
     - Profile Schema: reference/profile-schema.md

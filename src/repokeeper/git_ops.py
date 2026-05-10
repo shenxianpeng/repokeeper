@@ -331,3 +331,55 @@ def apply_and_push(
     git("push", "origin", branch)
 
     return branch, diff.splitlines()
+
+
+def fix_and_push(
+    implementation: dict,
+    gh_token: str,
+    repository: str,
+    head_branch: str,
+    pr_number: int,
+) -> tuple[str, list[str]]:
+    """Apply fixes to an existing PR branch and push.
+
+    Fetches the PR head branch, applies changes, commits, and force-pushes
+    back.  Unlike :func:`apply_and_push`, this does NOT create a new branch
+    or a new PR — it modifies the existing PR in-place.
+
+    Args:
+        implementation: LLM response dict with ``commit_message``,
+                        ``changes``, ``edits``, optionally ``new_files``.
+        gh_token: GitHub token for authentication.
+        repository: Repository slug (``owner/repo``).
+        head_branch: The PR's head branch name (from PR data).
+        pr_number: PR number (used for local temp branch name).
+
+    Returns:
+        Tuple of ``(branch_name, list_of_changed_files)``.
+
+    Raises:
+        GitOperationError: If no file changes were produced.
+    """
+    local_branch = f"repokeeper-fix-{pr_number}"
+
+    git("config", "user.email", "repokeeper[bot]@users.noreply.github.com")
+    git("config", "user.name", "repokeeper[bot]")
+
+    # Fetch PR head for the target branch.
+    git("fetch", "origin", "pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}")
+    git("checkout", "-b", local_branch, "origin/pr/{pr_number}")
+
+    apply_implementation_changes(implementation)
+
+    git("add", "-A")
+    diff = git("diff", "--cached", "--name-only", capture=True).stdout.strip()
+    if not diff:
+        raise GitOperationError("Fix produced no file changes.")
+
+    git("commit", "-m", implementation["commit_message"])
+
+    remote_url = f"https://x-access-token:{gh_token}@github.com/{repository}.git"
+    git("remote", "set-url", "origin", remote_url)
+    git("push", "origin", f"HEAD:{head_branch}")
+
+    return head_branch, diff.splitlines()

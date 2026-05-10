@@ -40,6 +40,7 @@ from repokeeper.git_ops import (
     apply_and_push,  # noqa: F401  # re-export
     apply_implementation_changes,
     extract_patch_paths,
+    fix_and_push,  # noqa: F401  # re-export
     implementation_file_paths,
 )
 from repokeeper.git_ops import git as _git  # noqa: F401  # re-export
@@ -647,6 +648,305 @@ edits, patch, changes, new_files). Use empty lists/objects for unused sections.
     return result, total_usage, failure_messages
 
 
+# ─── PR Fix Agent ────────────────────────────────────────────────────────────
+
+FIX_PR_SYSTEM_PROMPT = """\
+You are an expert software engineer fixing issues in a pull request
+based on the maintainer's review feedback.
+
+Your job:
+1. Read the maintainer's comments carefully — they pointed out specific
+   problems in the PR.
+2. Read the PR diff to understand the original changes.
+3. Read the relevant source files for context.
+4. Produce precise, minimal fixes that address ONLY the issues raised.
+
+Rules:
+- Fix ONLY what the maintainer asked for. Do not add features or refactor.
+- If the maintainer's feedback is unclear or contradictory, set "skip": true.
+- Respect the maintainer's code style and tech stack preferences.
+- Prefer exact edit operations or a unified diff over full-file rewrites.
+- Each fix should correspond to a specific piece of feedback.
+
+Respond with a single valid JSON object — no markdown fences, no explanation:
+
+{
+  "skip": false,
+  "reason": "",
+  "summary": "One sentence describing what was fixed.",
+  "commit_message": "fix: short imperative message",
+  "edits": [
+    {
+      "path": "path/to/existing/file.py",
+      "find": "exact existing text to replace",
+      "replace": "replacement text",
+      "replace_all": false
+    }
+  ],
+  "patch": "optional unified diff when exact edits are awkward",
+  "changes": {
+    "path/to/existing/file.py": "<complete new file content, fallback only>"
+  },
+  "new_files": {
+    "path/to/new/file.py": "<complete new file content>"
+  }
+}
+
+Empty sections must be represented as [] or {} rather than omitted.
+"""
+
+
+def _get_pr_fix_context(
+    pr_obj: Any,
+    pr_number: int,
+    profile: dict[str, Any],
+    llm_client: LLMClient,
+) -> tuple[str, TokenUsage, dict[str, str]]:
+    """Build the LLM context for a PR fix: diff + maintainer feedback + codebase.
+
+    Args:
+        pr_obj: PyGithub PullRequest object.
+        pr_number: PR number.
+        profile: Maintainer profile.
+        llm_client: LLM client (for smart file selection usage tracking).
+
+    Returns:
+        Tuple of (context_string, token_usage, collected_files).
+    """
+    from repokeeper.review import build_review_context_string as build_pr_context
+    from repokeeper.review import get_pr_data
+
+    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    pr_data = get_pr_data(pr_obj._repo if hasattr(pr_obj, '_repo') else pr_obj.head.repo, pr_number)  # type: ignore[union-attr]
+
+    # Collect files for context — prioritize changed files
+    agent_config = profile.get("agent", {})
+    max_context = agent_config.get("max_context_files", 60)
+    files = collect_repo_files(max_files=max_context)
+
+    context_str = build_pr_context(pr_data, files)
+
+    # Add maintainer feedback as a dedicated section
+    comments = list(pr_obj.get_issue_comments())
+    if comments:
+        feedback_parts = ["## Maintainer Feedback (from PR comments)"]
+        for c in comments:
+            author = c.user.login if c.user else "unknown"
+            feedback_parts.append(f"**@{author}:** {c.body}")
+        context_str = "\n\n".join(feedback_parts) + "\n\n" + context_str
+
+    usage = TokenUsage(model=model)
+    usage.prompt_tokens = estimate_tokens(files)
+    usage.total_tokens = usage.prompt_tokens
+
+    return context_str, usage, files
+
+
+def _call_llm_for_fix(
+    context_str: str,
+    profile: dict[str, Any],
+    llm_client: LLMClient,
+) -> tuple[dict[str, Any], TokenUsage]:
+    """Call the LLM to generate PR fixes.
+
+    Args:
+        context_str: Formatted fix context string.
+        profile: Maintainer profile.
+        llm_client: Unified LLM client.
+
+    Returns:
+        Tuple of (parsed JSON, token usage).
+    """
+    model = profile.get("agent", {}).get("model", "deepseek-chat")
+    style_config = profile.get("style", {})
+    code_style = style_config.get("code_style", "follow existing patterns")
+
+    user_prompt = f"""\
+## PR Fix Request
+
+The maintainer has reviewed this PR and requested changes.
+Read the feedback below and the PR diff, then produce fixes.
+
+## Maintainer style preference
+{code_style}
+
+## Context
+{context_str}
+"""
+
+    messages = [{"role": "user", "content": user_prompt}]
+    max_retries = 2
+    total_usage = TokenUsage(model=model)
+
+    for attempt in range(max_retries + 1):
+        response = llm_client.chat(
+            system=FIX_PR_SYSTEM_PROMPT,
+            messages=messages,
+            model=model,
+            temperature=0.1,
+            max_tokens=8000,
+            stream=False,
+        )
+
+        total_usage.prompt_tokens += response.usage.prompt_tokens
+        total_usage.completion_tokens += response.usage.completion_tokens
+        total_usage.total_tokens += response.usage.total_tokens
+        total_usage.cost_usd += response.usage.cost_usd
+
+        raw = response.content.strip()
+
+        try:
+            return parse_llm_json(raw), total_usage
+        except (ValueError, LLMParseError) as err:
+            if attempt < max_retries:
+                logger.warning(
+                    "JSON parse failed (attempt %d), retrying...", attempt + 1,
+                )
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous response contained invalid JSON. "
+                        f"Error: {err}\n\n"
+                        "Please fix the JSON and respond with ONLY the corrected "
+                        "JSON object."
+                    ),
+                })
+            else:
+                raise LLMParseError(
+                    f"LLM JSON parsing failed after {max_retries + 1} attempts. "
+                    f"Last error: {err}"
+                ) from err
+
+    raise LLMParseError("LLM JSON parsing failed")
+
+
+def run_fix_pr(
+    gh_token: str,
+    repository: str,
+    pr_number: int,
+    llm: LLMClient,
+    repo: Any,
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    """Fix issues in an existing PR based on maintainer feedback.
+
+    1. Reads PR diff, comments, and codebase context.
+    2. Calls the LLM to generate targeted fixes.
+    3. Applies fixes and pushes to the PR's head branch.
+    4. Posts a comment summarizing the fix.
+
+    Args:
+        gh_token: GitHub token.
+        repository: Repository slug.
+        pr_number: PR number.
+        llm: LLM client.
+        repo: PyGithub Repository object.
+        profile: Maintainer profile.
+
+    Returns:
+        Dict with result info.
+    """
+    pr_obj = repo.get_pull(pr_number)
+    pr_data_from_gh = {
+        "title": pr_obj.title,
+        "head_branch": pr_obj.head.ref,
+        "author": pr_obj.user.login if pr_obj.user else "unknown",
+    }
+
+    logger.info("PR #%d (%s) by @%s — running fix mode",
+                pr_number, pr_data_from_gh["title"], pr_data_from_gh["author"])
+
+    pr_obj.create_issue_comment(
+        "🤖 **RepoKeeper** is reviewing your feedback and working on fixes..."
+    )
+
+    try:
+        context_str, context_usage, files = _get_pr_fix_context(
+            pr_obj, pr_number, profile, llm,
+        )
+        logger.info("Fix context: %d files, ~%d tokens", len(files), estimate_tokens(files))
+
+        result, fix_usage = _call_llm_for_fix(context_str, profile, llm)
+
+        usage = TokenUsage(model=fix_usage.model)
+        usage.prompt_tokens = context_usage.prompt_tokens + fix_usage.prompt_tokens
+        usage.completion_tokens = fix_usage.completion_tokens
+        usage.total_tokens = context_usage.prompt_tokens + fix_usage.total_tokens
+        usage.cost_usd = fix_usage.cost_usd
+
+        if usage.total_tokens > 0:
+            logger.info(
+                "LLM usage: %d tokens · estimated $%.6f (model: %s)",
+                usage.total_tokens, usage.cost_usd, usage.model,
+            )
+
+        if result.get("skip"):
+            reason = result.get("reason", "No reason provided.")
+            pr_obj.create_issue_comment(
+                f"🤖 **RepoKeeper** could not fix this automatically:\n\n> {reason}\n\n"
+                f"Please fix manually or provide more specific feedback."
+            )
+            return {"skip": True, "reason": reason}
+
+        # Strip blocked paths
+        stripped = strip_blocked_paths(result)
+        if stripped:
+            logger.info("Stripped blocked paths: %s", ", ".join(stripped))
+
+        # Validate (skip branch_name check — not applicable to fix mode)
+        validation_issues = [
+            v for v in validate_implementation(result, profile)
+            if "branch_name" not in v
+        ]
+        if validation_issues:
+            issues_str = "\n".join(f"- {v}" for v in validation_issues)
+            pr_obj.create_issue_comment(
+                f"🤖 **RepoKeeper** fix validation failed:\n\n{issues_str}\n\n"
+                f"Please review manually."
+            )
+            return {"skip": True, "reason": f"Validation: {issues_str}"}
+
+        logger.info("Fix plan: %s", result["summary"])
+
+        # Apply changes and push to existing branch
+        apply_implementation_changes(result)
+
+        head_branch = pr_data_from_gh["head_branch"]
+        assert gh_token is not None
+        assert repository is not None
+
+        branch, changed_files = fix_and_push(
+            result, gh_token, repository, head_branch, pr_number,
+        )
+
+        cost_note = ""
+        if usage.cost_usd > 0:
+            cost_note = (
+                f"\n**Estimated cost:** ~${usage.cost_usd:.6f} "
+                f"({usage.total_tokens} tokens, {usage.model})"
+            )
+
+        pr_obj.create_issue_comment(
+            f"🤖 **RepoKeeper** applied fixes based on your feedback.\n\n"
+            f"**Summary:** {result['summary']}\n"
+            f"**Changed files:** {', '.join(f'`{f}`' for f in changed_files) or '(none)'}"
+            f"{cost_note}\n\n"
+            f"Please re-review the changes."
+        )
+
+        logger.info("Fix pushed to %s (%d files)", branch, len(changed_files))
+        return {"skip": False, "pr_url": pr_obj.html_url, "fix_applied": True}
+
+    except Exception as exc:
+        logger.error("Fix PR error: %s", exc)
+        pr_obj.create_issue_comment(
+            f"🤖 **RepoKeeper** fix encountered an error:\n\n```\n{exc}\n```\n\n"
+            f"Check the [workflow logs]({repo.html_url}/actions) for details."
+        )
+        raise
+
+
 # ─── PR creation ─────────────────────────────────────────────────────────────
 
 
@@ -865,6 +1165,7 @@ def run_agent(
     gh_token: str | None = None,
     repository: str | None = None,
     issue_number: int | None = None,
+    pr_number: int | None = None,
     llm_api_key: str | None = None,
     llm_base_url: str | None = None,
     profile_path: str | Path | None = None,
@@ -927,7 +1228,48 @@ def run_agent(
         else:
             raise
     issue_obj = repo.get_issue(issue_number)
+
+    # ── PR context detection ──
+    # When triggered by a PR comment or label, switch to fix mode.
+    # pr_number may come from CLI --pr flag or PR_NUMBER env.
+    pr_number = pr_number or int(os.environ.get("PR_NUMBER", "0"))
+    is_pr_context = False
+    try:
+        pr_check = repo.get_pull(issue_number)
+        if pr_check is not None and pr_number == issue_number:
+            is_pr_context = True
+            # Get the original issue number linked to this PR
+            import re as _re
+            body = pr_check.body or ""
+            match = _re.search(r"[Cc]loses?\s+#(\d+)", body)
+            if match:
+                issue_number = int(match.group(1))
+                issue_obj = repo.get_issue(issue_number)
+    except Exception:
+        if pr_number and not is_pr_context:
+            # pr_number set explicitly but get_pull failed — still try fix mode
+            try:
+                pr_check = repo.get_pull(pr_number)
+                if pr_check is not None:
+                    is_pr_context = True
+                    import re as _re
+                    body = pr_check.body or ""
+                    match = _re.search(r"[Cc]loses?\s+#(\d+)", body)
+                    if match:
+                        issue_number = int(match.group(1))
+                        issue_obj = repo.get_issue(issue_number)
+            except Exception:
+                pass
+
     issue_data = get_issue_data(repo, issue_number)
+
+    # Branch to PR fix mode
+    if is_pr_context:
+        assert gh_token is not None and repository is not None
+        logger.info("PR #%d detected — running fix mode (linked issue #%d)", pr_number, issue_number)
+        return run_fix_pr(
+            gh_token, repository, pr_number, llm, repo, profile,
+        )
 
     logger.info("Issue #%d: %s", issue_number, issue_data["title"])
 

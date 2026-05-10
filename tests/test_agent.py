@@ -3025,3 +3025,158 @@ def test_run_agent_verification_fix_loop(monkeypatch, tmp_path):
 
     assert result["skip"] is False
     assert result["pr_url"] is not None
+
+
+# ── PR Fix mode ─────────────────────────────────────────────────────────────
+
+
+def test_call_llm_for_fix_returns_parsed_json():
+    """_call_llm_for_fix returns parsed JSON from LLM response."""
+
+    class Response:
+        content = '{"skip": false, "summary": "Fixed Mermaid syntax", "commit_message": "fix: correct mermaid syntax", "edits": [{"path": "README.md", "find": "old", "replace": "new"}], "patch": "", "changes": {}, "new_files": {}}'
+        usage = TokenUsage()
+
+    class Client:
+        def chat(self, **kwargs):
+            return Response()
+
+    result, usage = agent._call_llm_for_fix(
+        "context",
+        {"agent": {"model": "test"}, "style": {}},
+        Client(),
+    )
+    assert result["skip"] is False
+    assert result["summary"] == "Fixed Mermaid syntax"
+    assert result["commit_message"] == "fix: correct mermaid syntax"
+
+
+def test_call_llm_for_fix_retry_on_bad_json():
+    """_call_llm_for_fix retries once on invalid JSON."""
+    call_count = [0]
+
+    class Response:
+        usage = TokenUsage()
+        def __init__(self, content):
+            self.content = content
+
+    class Client:
+        def chat(self, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return Response("bad json")
+            return Response('{"skip": false, "summary": "ok", "commit_message": "fix", "edits": [], "changes": {}, "new_files": {}}')
+
+    result, usage = agent._call_llm_for_fix(
+        "ctx", {"agent": {"model": "x"}, "style": {}}, Client(),
+    )
+    assert result["skip"] is False
+    assert call_count[0] == 2
+
+
+def test_run_fix_pr_happy_path(monkeypatch):
+    """run_fix_pr applies fixes and pushes to existing PR branch."""
+    monkeypatch.setattr(agent, "logger", MagicMock())
+
+    pr_obj = MagicMock()
+    pr_obj.title = "Add feature"
+    pr_obj.head.ref = "feature-branch"
+    pr_obj.user.login = "contributor"
+    pr_obj.html_url = "https://github.com/owner/repo/pull/42"
+
+    repo_mock = MagicMock()
+    repo_mock.get_pull.return_value = pr_obj
+    repo_mock.html_url = "https://github.com/owner/repo"
+
+    def fake_get_pr_fix_context(pr, num, profile, llm):
+        return "context", TokenUsage(model="test"), {"README.md": "content"}
+
+    def fake_call_llm_for_fix(ctx, prof, llm):
+        return {
+            "skip": False,
+            "summary": "Fixed typo",
+            "commit_message": "fix: typo",
+            "edits": [{"path": "README.md", "find": "old", "replace": "new"}],
+            "changes": {},
+            "new_files": {},
+            "patch": "",
+        }, TokenUsage(model="test", total_tokens=100, cost_usd=0.0001)
+
+    monkeypatch.setattr(agent, "_get_pr_fix_context", fake_get_pr_fix_context)
+    monkeypatch.setattr(agent, "_call_llm_for_fix", fake_call_llm_for_fix)
+    monkeypatch.setattr(agent, "apply_implementation_changes", lambda imp, repo_root=".": ["README.md"])
+    monkeypatch.setattr(agent, "fix_and_push",
+                        lambda imp, tok, repo, branch, pr: (branch, ["README.md"]))
+
+    result = agent.run_fix_pr(
+        gh_token="tk", repository="owner/repo", pr_number=42,
+        llm=MagicMock(), repo=repo_mock,
+        profile={"agent": {"model": "test"}, "style": {}},
+    )
+    assert result["skip"] is False
+    assert result["fix_applied"] is True
+    pr_obj.create_issue_comment.assert_called()
+
+
+def test_run_fix_pr_skip_when_llm_skips(monkeypatch):
+    """run_fix_pr returns skip when LLM decides fix is not possible."""
+    monkeypatch.setattr(agent, "logger", MagicMock())
+
+    pr_obj = MagicMock()
+    pr_obj.title = "Complex PR"
+    pr_obj.head.ref = "branch"
+    pr_obj.user.login = "dev"
+
+    repo_mock = MagicMock()
+    repo_mock.get_pull.return_value = pr_obj
+
+    monkeypatch.setattr(agent, "_get_pr_fix_context",
+                        lambda *a: ("ctx", TokenUsage(), {}))
+    monkeypatch.setattr(agent, "_call_llm_for_fix",
+                        lambda *a: ({"skip": True, "reason": "Feedback unclear"}, TokenUsage()))
+
+    result = agent.run_fix_pr(
+        gh_token="tk", repository="owner/repo", pr_number=1,
+        llm=MagicMock(), repo=repo_mock,
+        profile={"agent": {"model": "test"}, "style": {}},
+    )
+    assert result["skip"] is True
+    assert "Feedback unclear" in result["reason"]
+
+
+def test_run_agent_detects_pr_context_and_runs_fix(monkeypatch):
+    """run_agent detects PR context (PR_NUMBER env) and delegates to run_fix_pr."""
+    monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
+        "agent": {"implement": True, "model": "test"},
+        "style": {},
+    })
+    monkeypatch.setenv("PR_NUMBER", "42")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+
+    pr_obj = MagicMock()
+    pr_obj.title = "Test PR"
+    pr_obj.head.ref = "branch"
+    pr_obj.user.login = "dev"
+    pr_obj.body = "Closes #1"
+
+    repo_mock = MagicMock()
+    repo_mock.get_pull.return_value = pr_obj
+
+    issue_obj = MagicMock()
+    repo_mock.get_issue.return_value = issue_obj
+
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
+
+    def fake_fix_pr(gh_token, repo_slug, pr_num, llm, repo, profile):
+        return {"skip": False, "pr_url": "https://github.com/owner/repo/pull/42", "fix_applied": True}
+
+    monkeypatch.setattr(agent, "run_fix_pr", fake_fix_pr)
+
+    result = agent.run_agent(
+        gh_token="tk", repository="owner/repo", issue_number=42, llm_api_key="key",
+    )
+    assert result["fix_applied"] is True
+    assert "pr_url" in result

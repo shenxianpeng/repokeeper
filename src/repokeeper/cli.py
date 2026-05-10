@@ -203,6 +203,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
         gh_token=args.github_token,
         repository=args.repo,
         issue_number=args.issue,
+        pr_number=args.pr,
         llm_api_key=args.llm_api_key,
         llm_base_url=args.llm_base_url,
         profile_path=args.profile,
@@ -217,7 +218,10 @@ def cmd_agent(args: argparse.Namespace) -> int:
         else:
             print(f"Skipped: {reason}")
         return 0
-    print(f"PR created: {result.get('pr_url')}")
+    if result.get("fix_applied"):
+        print(f"Fix pushed to {result.get('pr_url')}")
+    else:
+        print(f"PR created: {result.get('pr_url')}")
     return 0
 
 
@@ -603,9 +607,10 @@ def build_parser() -> argparse.ArgumentParser:
     pricing.add_argument("--json", action="store_true", help="Output as JSON")
     pricing.set_defaults(func=cmd_pricing)
 
-    agent = subparsers.add_parser("agent", help="Run Implementation Agent for an issue")
+    agent = subparsers.add_parser("agent", help="Run Implementation Agent for an issue (or fix a PR)")
     add_common_remote(agent)
-    agent.add_argument("--issue", required=True, type=int, help="GitHub issue number")
+    agent.add_argument("--issue", required=True, type=int, help="GitHub issue number (or PR number when fixing)")
+    agent.add_argument("--pr", type=int, default=None, help="PR number for fix mode")
     agent.add_argument(
         "--dry-run", action="store_true",
         help="Generate an implementation plan without applying changes or creating a PR",

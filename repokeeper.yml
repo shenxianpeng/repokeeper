@@ -87,3 +87,9 @@ patrol:
   auto_upgrade_deps: true
   stale_days: 90
   ci_auto_fix: true
+
+# ── Draft Release Generator ──
+releaser:
+  enabled: true
+  max_commits: 200
+  dry_run: false

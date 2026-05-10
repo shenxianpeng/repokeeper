@@ -20,6 +20,7 @@ from .labeler import generate_labeler_summary, run_labeler
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
 from .radar import generate_radar_summary, run_radar
+from .releaser import generate_release_summary, run_releaser
 from .review import run_describe, run_review
 
 AGENT_WORKFLOW = "repokeeper.yml"
@@ -268,6 +269,34 @@ def cmd_describe(args: argparse.Namespace) -> int:
         print(f"PR description updated{extra}")
     else:
         print(f"Description not posted: {result.get('error', 'unknown')}")
+    return 0
+
+
+def cmd_releaser(args: argparse.Namespace) -> int:
+    profile = load_profile(args.profile)
+    gh = _make_github_client(args.github_token)
+    llm = _make_llm_client(args.llm_api_key, args.llm_base_url)
+
+    # CLI --dry-run overrides profile setting
+    if args.dry_run:
+        profile.setdefault("releaser", {})["dry_run"] = True
+
+    report = run_releaser(gh, llm, args.repo, profile)
+    if report.error:
+        print(f"Releaser: {report.error}")
+        return 1
+    print(
+        f"Releaser: {report.commits_scanned} commits scanned"
+        f" since '{report.since_tag or 'beginning'}'"
+    )
+    if report.draft:
+        print(f"  Tag: {report.draft.tag_name}")
+        print(f"  Title: {report.draft.title}")
+        if report.release_url:
+            print(f"  Draft release: {report.release_url}")
+    if args.summary:
+        print()
+        print(generate_release_summary(report))
     return 0
 
 
@@ -642,6 +671,13 @@ def build_parser() -> argparse.ArgumentParser:
     labeler.add_argument("--pr", type=int, default=None, help="PR number to label")
     labeler.add_argument("--summary", action="store_true", help="Print markdown summary")
     labeler.set_defaults(func=cmd_labeler)
+
+    releaser = subparsers.add_parser("releaser", help="Generate draft release notes from commits")
+    add_common_remote(releaser)
+    releaser.add_argument("--summary", action="store_true", help="Print markdown summary")
+    releaser.add_argument("--dry-run", action="store_true",
+                          help="Generate release notes without creating a draft release")
+    releaser.set_defaults(func=cmd_releaser)
 
     return parser
 

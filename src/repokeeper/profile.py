@@ -115,6 +115,13 @@ DEFAULT_PROFILE: dict[str, Any] = {
         "describe_on_open": False,    # auto-generate PR description on pull_request.opened
         "incremental": True,          # re-review on new commits (pull_request.synchronize)
     },
+    # ── Releaser (Draft Release Generator) ──
+    "releaser": {
+        "enabled": True,
+        "model": None,                # per-module model (None = use agent.model)
+        "max_commits": 200,           # max commits to scan for release notes
+        "dry_run": False,             # if True, only generate notes without creating a release
+    },
 }
 
 
@@ -365,7 +372,7 @@ def validate_profile(profile: dict) -> list[str]:
 
     # Validate per-module model overrides (fall back to agent.model)
     known_models = {"deepseek-chat", "deepseek-reasoner", "gpt-4o", "gpt-4o-mini"}
-    for section in ("agent", "labeler", "radar", "patrol", "review"):
+    for section in ("agent", "labeler", "radar", "patrol", "review", "releaser"):
         model = profile.get(section, {}).get("model")
         if model is not None and not isinstance(model, str):
             issues.append(f"{section}.model must be a string or null")

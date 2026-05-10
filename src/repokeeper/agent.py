@@ -1487,7 +1487,7 @@ def run_agent(
     # ── PR context detection ──
     # When triggered by a PR comment or label, switch to fix mode.
     # pr_number may come from CLI --pr flag or PR_NUMBER env.
-    pr_number = pr_number or int(os.environ.get("PR_NUMBER", "0"))
+    pr_number = pr_number or int(os.environ.get("PR_NUMBER") or "0")
     is_pr_context = False
     try:
         pr_check = repo.get_pull(issue_number)

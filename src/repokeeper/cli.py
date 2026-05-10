@@ -199,6 +199,10 @@ def cmd_pricing(args: argparse.Namespace) -> int:
 
 
 def cmd_agent(args: argparse.Namespace) -> int:
+    # CLI backend override via env so profile resolution picks it up
+    if args.backend:
+        os.environ["RKP_AGENT_BACKEND"] = args.backend
+
     result = run_agent(
         gh_token=args.github_token,
         repository=args.repo,
@@ -611,6 +615,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_remote(agent)
     agent.add_argument("--issue", required=True, type=int, help="GitHub issue number (or PR number when fixing)")
     agent.add_argument("--pr", type=int, default=None, help="PR number for fix mode")
+    agent.add_argument("--backend", choices=["native", "pi"], default=None,
+                       help="Agent backend (default: from profile)")
     agent.add_argument(
         "--dry-run", action="store_true",
         help="Generate an implementation plan without applying changes or creating a PR",

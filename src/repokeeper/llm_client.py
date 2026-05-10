@@ -407,6 +407,7 @@ class LLMClient:
                 provider = "openai"
 
         self.provider = provider
+        self.api_key = api_key
 
         if provider == "anthropic":
             try:

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -696,6 +697,186 @@ Empty sections must be represented as [] or {} rather than omitted.
 """
 
 
+# ─── Pi Backend ──────────────────────────────────────────────────────────────
+
+PI_TASK_TEMPLATE = """\
+You are an expert software engineer acting as an AI deputy for an open source
+maintainer.  Your job is to implement a GitHub issue by reading the codebase,
+making precise, minimal changes, and verifying your work.
+
+## Issue #{number}: {title}
+
+{body}
+
+## Recent Discussion
+{discussion}
+
+## Maintainer Preferences
+- Code style: {code_style}
+{tech_note}
+
+## Rules
+1. Read the relevant source files to understand the codebase before changing anything.
+2. Make the MINIMAL changes needed to close the issue.
+3. Do NOT add unrequested features, refactors, or comments.
+4. Never modify files under .github/workflows/.
+5. Run linters and tests if available to verify your changes.
+6. When you are done, output a single JSON line with the result:
+   {{"success": true, "summary": "one sentence", "commit_message": "type: short message"}}
+   If you cannot implement the issue, set success to false and explain why.
+
+The repository files are on disk.  Start by exploring the codebase.
+"""
+
+
+def _build_pi_prompt(
+    issue_data: dict[str, Any],
+    profile: dict[str, Any],
+) -> str:
+    """Build a task prompt for the Pi coding agent.
+
+    Args:
+        issue_data: Structured issue data.
+        profile: Maintainer profile dict.
+
+    Returns:
+        Markdown prompt string for Pi.
+    """
+    style_config = profile.get("style", {})
+    code_style = style_config.get("code_style", "follow existing patterns")
+    tech_config = profile.get("tech", {})
+    preferred = tech_config.get("preferred", [])
+    avoided = tech_config.get("avoid", [])
+
+    tech_note = ""
+    if preferred:
+        tech_note += f"- Preferred tech stack: {', '.join(preferred)}\n"
+    if avoided:
+        tech_note += f"- Tech stack to avoid: {', '.join(avoided)}\n"
+
+    discussion = "\n".join(
+        f"@{c.get('author', '?')}: {c.get('body', '')}"
+        for c in issue_data.get("comments", [])[-5:]
+    ) or "(no recent discussion)"
+
+    return PI_TASK_TEMPLATE.format(
+        number=issue_data["number"],
+        title=issue_data["title"],
+        body=issue_data["body"],
+        discussion=discussion,
+        code_style=code_style,
+        tech_note=tech_note,
+    )
+
+
+def _pi_model_arg(model: str) -> str:
+    """Convert a profile model name to a Pi --model argument.
+
+    Pi expects ``provider/model`` format.  Short names are mapped to known
+    providers; unknown names are passed through as-is.
+    """
+    mapping: dict[str, str] = {
+        "deepseek-chat": "deepseek/deepseek-chat",
+        "deepseek-reasoner": "deepseek/deepseek-reasoner",
+        "gpt-4o": "openai/gpt-4o",
+        "gpt-4o-mini": "openai/gpt-4o-mini",
+    }
+    if "/" in model:
+        return model
+    return mapping.get(model, f"deepseek/{model}")
+
+
+def _run_pi(
+    prompt: str,
+    model: str,
+    api_key: str,
+    workdir: str | Path = ".",
+    timeout: int = 900,
+) -> subprocess.CompletedProcess[str]:
+    """Run Pi coding agent as a subprocess.
+
+    Writes the prompt to a temp file and invokes Pi with ``@file`` syntax.
+    Returns the completed process; caller inspects ``returncode``, ``stdout``,
+    and ``stderr``.
+
+    Args:
+        prompt: Markdown prompt for Pi.
+        model: Model name (resolved via :func:`_pi_model_arg`).
+        api_key: API key for the provider.
+        workdir: Working directory for Pi (should be the repo root).
+        timeout: Maximum runtime in seconds.
+
+    Returns:
+        Completed subprocess.
+    """
+    prompt_file = Path(workdir) / ".repokeeper-pi-prompt.md"
+    prompt_file.write_text(prompt, encoding="utf-8")
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            [
+                "pi",
+                "--model", _pi_model_arg(model),
+                "--api-key", api_key,
+                f"@{prompt_file}",
+            ],
+            cwd=str(workdir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return result
+    finally:
+        prompt_file.unlink(missing_ok=True)
+
+
+def _parse_pi_result(stdout: str) -> dict[str, Any]:
+    """Parse the JSON result line from Pi's output.
+
+    Pi is instructed to emit a JSON line with ``success``, ``summary``,
+    and ``commit_message``.  Falls back to a generic summary on parse failure.
+
+    Args:
+        stdout: Pi's captured stdout.
+
+    Returns:
+        Dict with at least ``skip``, ``summary``, and ``commit_message``.
+    """
+    for line in reversed(stdout.strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict) and "success" in data:
+                    return {
+                        "skip": not data.get("success", False),
+                        "reason": data.get("reason", ""),
+                        "summary": data.get("summary", "Pi made changes."),
+                        "commit_message": data.get("commit_message", "fix: changes from Pi"),
+                        "edits": [],
+                        "changes": {},
+                        "new_files": {},
+                        "patch": "",
+                    }
+            except json.JSONDecodeError:
+                continue
+
+    return {
+        "skip": True,
+        "reason": "Pi output did not contain a result JSON line.",
+        "summary": "",
+        "commit_message": "",
+        "edits": [],
+        "changes": {},
+        "new_files": {},
+        "patch": "",
+    }
+
+
+# ─── PR Fix Context ─────────────────────────────────────────────────────────
+
+
 def _get_pr_fix_context(
     pr_obj: Any,
     pr_number: int,
@@ -726,13 +907,18 @@ def _get_pr_fix_context(
 
     context_str = build_pr_context(pr_data, files)
 
-    # Add maintainer feedback as a dedicated section
+    # Add maintainer feedback as a dedicated section.
+    # Bot comments (from repokeeper[bot]) are labelled as previous fix attempts
+    # so the LLM understands what was already tried.
     comments = list(pr_obj.get_issue_comments())
     if comments:
-        feedback_parts = ["## Maintainer Feedback (from PR comments)"]
+        feedback_parts = ["## PR Conversation History"]
         for c in comments:
             author = c.user.login if c.user else "unknown"
-            feedback_parts.append(f"**@{author}:** {c.body}")
+            if author == "repokeeper[bot]":
+                feedback_parts.append(f"**🤖 RepoKeeper (previous fix attempt):** {c.body}")
+            else:
+                feedback_parts.append(f"**@{author} (reviewer feedback):** {c.body}")
         context_str = "\n\n".join(feedback_parts) + "\n\n" + context_str
 
     usage = TokenUsage(model=model)
@@ -1337,7 +1523,73 @@ def run_agent(
             len(files), estimate_tokens(files),
         )
 
-        # Call LLM
+        # Call LLM or Pi agent
+        backend = agent_config.get("backend", "native")
+        usage = TokenUsage(model=model)
+        if backend == "pi":
+            logger.info("Running Pi coding agent (%s)...", model)
+            pi_prompt = _build_pi_prompt(issue_data, profile)
+            pi_result = _run_pi(pi_prompt, model, llm.api_key)
+            if pi_result.returncode != 0:
+                logger.warning("Pi exited with code %d", pi_result.returncode)
+                logger.debug("Pi stderr: %s", pi_result.stderr[-500:])
+            result = _parse_pi_result(pi_result.stdout)
+            logger.info("Pi stdout (last 300 chars): %s", pi_result.stdout[-300:])
+
+            # Detect changed files after Pi ran
+            changed = _git("diff", "--name-only", capture=True, check=False).stdout.strip()
+            changed_files_list = changed.splitlines() if changed else []
+
+            # If Pi skipped or no files changed, return early
+            if result.get("skip"):
+                reason = result.get("reason", "Pi could not implement this issue.")
+                logger.info("Pi skipped: %s", reason)
+                post_comment(issue_obj,
+                    f"🤖 **RepoKeeper** (Pi) could not implement this automatically:\n\n> {reason}\n\n"
+                    f"Please implement manually or clarify the issue.")
+                return {"skip": True, "reason": reason, "pr_url": None}
+
+            if not changed_files_list:
+                logger.warning("Pi produced no file changes")
+                post_comment(issue_obj,
+                    "🤖 **RepoKeeper** (Pi) finished but produced no file changes.\n\n"
+                    "Please check the issue description or implement manually.")
+                return {"skip": True, "reason": "No file changes produced by Pi", "pr_url": None}
+
+            impl_usage = TokenUsage(model=model, total_tokens=0, cost_usd=0)
+            verification_results: list[VerificationResult] = []
+
+            # Directly commit and push — Pi changes are already on disk
+            logger.info("Plan (Pi): %s", result.get("summary", ""))
+            branch_name = f"repokeeper/issue-{issue_number}-pi"
+            result["branch_name"] = _resolve_branch_collision(branch_name, repo)
+            result["commit_message"] = result.get("commit_message",
+                                                    f"fix: address issue #{issue_number} (Pi)")
+            _git("add", "-A")
+            _git("commit", "-m", result["commit_message"], check=False)
+
+            assert gh_token is not None
+            assert repository is not None
+            branch, pushed_files = apply_and_push(
+                result, gh_token, repository, profile,
+                already_applied=True, verify=False,
+            )
+
+            pr_url = create_pr(repo, issue_data, result, branch, pushed_files, profile,
+                               verification_results=verification_results, usage=usage,
+                               context_file_count=len(files),
+                               context_token_estimate=estimate_tokens(files))
+
+            post_comment(issue_obj,
+                f"🤖 **RepoKeeper** (Pi) finished implementation.\n\n"
+                f"**PR:** {pr_url}\n\n"
+                f"**Summary:** {result['summary']}\n"
+                f"**Changed files:** {', '.join(f'`{f}`' for f in pushed_files) or '(none)'}\n\n"
+                f"Please review the changes before merging.")
+            logger.info("Done (Pi) — PR: %s", pr_url)
+            return {"skip": False, "reason": "", "pr_url": pr_url}
+
+        # Native backend: call LLM
         logger.info("Calling LLM (%s)...", model)
         result, impl_usage = call_llm(issue_data, context_str, profile, llm)
 

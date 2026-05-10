@@ -67,6 +67,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     # ── Agent behavior ──
     "agent": {
         "model": "deepseek-chat",     # deepseek-chat | deepseek-reasoner | gpt-4o | gpt-4o-mini
+        "backend": "native",          # native | pi
         "implement": True,            # allow automatic implementation
         "max_context_files": 60,      # max files to include in LLM context
         "max_context_tokens": None,   # token budget override (None = auto)
@@ -394,5 +395,9 @@ def validate_profile(profile: dict) -> list[str]:
     change_mode = profile.get("agent", {}).get("change_mode", "edits")
     if change_mode not in {"edits", "patch", "full_file"}:
         issues.append("agent.change_mode must be one of {'edits', 'patch', 'full_file'}")
+
+    backend = profile.get("agent", {}).get("backend", "native")
+    if backend not in {"native", "pi"}:
+        issues.append("agent.backend must be one of {'native', 'pi'}")
 
     return issues

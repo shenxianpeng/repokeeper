@@ -541,6 +541,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="repokeeper", description="AI-powered open source maintainer agent")
     parser.add_argument("--version", action="version", version=f"repokeeper {__version__}")
+    parser.add_argument(
+        "--log-format",
+        choices=["text", "json"],
+        default=None,
+        help="Log output format (default: text, or set RKP_LOG_FORMAT)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser("init", help="Create a RepoKeeper profile")
@@ -632,8 +638,22 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     from repokeeper.logs import setup_logging
 
-    setup_logging()
     parser = build_parser()
+
+    # Parse a first pass to extract --log-format before logging is set up.
+    # We can't use parse_known_args easily with subparsers, so inspect argv.
+    log_fmt: str | None = None
+    if argv is None:
+        argv = sys.argv[1:]
+    for i, arg in enumerate(argv):
+        if arg == "--log-format" and i + 1 < len(argv):
+            log_fmt = argv[i + 1]
+            break
+        if arg.startswith("--log-format=") and "=" in arg:
+            log_fmt = arg.split("=", 1)[1]
+            break
+
+    setup_logging(fmt=log_fmt)
     args = parser.parse_args(argv)
     return args.func(args)  # type: ignore[no-any-return]
 

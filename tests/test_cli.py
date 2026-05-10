@@ -53,7 +53,7 @@ def test_agent_workflow_only_triggers_on_explicit_approval():
     )
 
     assert "github.event.label.name == 'agent-todo'" in workflow
-    assert "contains(github.event.comment.body, '@repokeeper go')" in workflow
+    assert "contains(github.event.comment.body, '/repokeeper go')" in workflow
     assert "repokeeper-candidate" not in workflow
 
 

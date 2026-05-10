@@ -222,7 +222,7 @@ for each actionable hit.
 - **Diagnosis summary:** User reports a reproducible crash.
 - **Suggested acceptance criteria:** Maintainer confirms this is actionable.
 
-Maintainer approval required: add `agent-todo` or comment `@repokeeper go`
+Maintainer approval required: add `agent-todo` or comment `/repokeeper go`
 to request implementation.
 
 [AI-generated structured description with sections:

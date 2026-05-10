@@ -1238,7 +1238,7 @@ def generate_radar_summary(report: RadarReport) -> str:
         lines.append("")
         lines.append(
             "RepoKeeper will not implement these candidates until a maintainer "
-            "adds `agent-todo` or comments `@repokeeper go`."
+            "adds `agent-todo` or comments `/repokeeper go`."
         )
         lines.append("")
         if report.issues_created:

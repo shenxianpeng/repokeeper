@@ -36,12 +36,12 @@ on:
 
 The workflow only runs when:
 
-1. **Comment trigger:** A collaborator comments `@repokeeper go` on an issue
+1. **Comment trigger:** A collaborator comments `/repokeeper go` on an issue
    (not a PR):
    ```yaml
    github.event_name == 'issue_comment' &&
    !github.event.issue.pull_request &&
-   contains(github.event.comment.body, '@repokeeper go') &&
+   contains(github.event.comment.body, '/repokeeper go') &&
    github.event.comment.author_association in ('OWNER', 'MEMBER', 'COLLABORATOR')
    ```
 

@@ -1047,7 +1047,7 @@ def generate_health_summary(report: PatrolReport, profile: dict) -> str:
         lines.append("")
         lines.append(
             "RepoKeeper will not implement these candidates until a maintainer "
-            "adds `agent-todo` or comments `@repokeeper go`."
+            "adds `agent-todo` or comments `/repokeeper go`."
         )
         lines.append("")
         for item in pending[:20]:

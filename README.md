@@ -15,7 +15,7 @@
 
 ```bash
 # Label an issue agent-todo — RepoKeeper handles the rest
-@repokeeper go
+/repokeeper go
 ```
 
 Zero config. GitHub-native. ~$0.01 per PR with DeepSeek.
@@ -57,7 +57,7 @@ flowchart TD
     issues["🐙 Issues"]
     prs["🐙 Pull Requests"]
     disc["🐙 Discussions"]
-    comments["💬 @repokeeper"]
+    comments["💬 /repokeeper"]
 
     profile["📋 Maintainer Profile<br/>repokeeper.yml"]:::config
 
@@ -120,7 +120,7 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         !github.event.issue.pull_request &&
-        contains(github.event.comment.body, '@repokeeper go') &&
+        contains(github.event.comment.body, '/repokeeper go') &&
         (
           github.event.comment.author_association == 'OWNER' ||
           github.event.comment.author_association == 'MEMBER' ||
@@ -172,11 +172,11 @@ repokeeper doctor --repo owner/repo
 
 Paste this into any AI coding agent (Copilot Chat, Claude Code, Cursor, Windsurf, pi, etc.):
 
-> Add RepoKeeper to this repository. Create `.github/workflows/repokeeper.yml` that uses the `shenxianpeng/repokeeper/agent@v1` composite action — trigger on issue comments (`@repokeeper go`) and labels (`agent-todo`). Pass `DEEPSEEK_API_KEY` as the `llm_api_key` input. Then tell me to add a `DEEPSEEK_API_KEY` secret in GitHub Actions settings.
+> Add RepoKeeper to this repository. Create `.github/workflows/repokeeper.yml` that uses the `shenxianpeng/repokeeper/agent@v1` composite action — trigger on issue comments (`/repokeeper go`) and labels (`agent-todo`). Pass `DEEPSEEK_API_KEY` as the `llm_api_key` input. Then tell me to add a `DEEPSEEK_API_KEY` secret in GitHub Actions settings.
 
 ### Trigger the agent
 
-Label any issue `agent-todo` — or comment `@repokeeper go`.
+Label any issue `agent-todo` — or comment `/repokeeper go`.
 
 ---
 

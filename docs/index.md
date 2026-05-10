@@ -67,7 +67,7 @@ hide:
       <ol>
         <li>Copy one GitHub Actions workflow into the repository.</li>
         <li>Add a <code>DEEPSEEK_API_KEY</code> repository secret.</li>
-        <li>Label an issue <code>agent-todo</code> or comment <code>@repokeeper go</code>.</li>
+        <li>Label an issue <code>agent-todo</code> or comment <code>/repokeeper go</code>.</li>
         <li>Review the generated branch and pull request.</li>
       </ol>
     </article>

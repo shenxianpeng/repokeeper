@@ -79,7 +79,7 @@ def format_candidate_block(
         "",
         (
             "Maintainer approval required: add `agent-todo` or comment "
-            "`@repokeeper go` to request implementation."
+            "`/repokeeper go` to request implementation."
         ),
     ])
     return "\n".join(lines)

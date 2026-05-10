@@ -193,7 +193,7 @@ _12 checked, 3 outdated_
 ## ⏳ Waiting for Maintainer Approval
 
 RepoKeeper will not implement these candidates until a maintainer adds
-`agent-todo` or comments `@repokeeper go`.
+`agent-todo` or comments `/repokeeper go`.
 
 - Approve implementation for CI failure `pytest`.
 - Review dependency `cryptography` upgrade (high).

@@ -2,7 +2,7 @@
 Module 5: Code Review Agent
 
 Triggered when a PR is labeled ``agent-review`` or when a maintainer
-comments ``@repokeeper review``. Reads the PR diff and relevant codebase
+comments ``/repokeeper review``. Reads the PR diff and relevant codebase
 context, then posts a structured code review with **inline line-level
 comments** via GitHub's Pull Request Review API.
 

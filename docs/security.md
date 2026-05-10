@@ -46,7 +46,7 @@ Do not commit secrets to `repokeeper.yml`, workflow files, or documentation.
 
 RepoKeeper supports two agent triggers:
 
-- `@repokeeper go` on an issue comment from an owner, member, or collaborator
+- `/repokeeper go` on an issue comment from an owner, member, or collaborator
 - `agent-todo` label on an issue
 
 If many contributors can apply labels in your repository, prefer the comment

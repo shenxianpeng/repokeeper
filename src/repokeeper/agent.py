@@ -3,7 +3,7 @@
 Module 3: Implementation Agent
 
 Triggered when an issue is labeled ``agent-todo`` or when a maintainer
-comments ``@repokeeper go``. Reads the codebase + issue description,
+comments ``/repokeeper go``. Reads the codebase + issue description,
 generates an implementation plan, submits a PR with a summary.
 
 Uses the Maintainer Profile (Module 4) for code style, tone, PR standards,
@@ -1152,7 +1152,7 @@ def _format_similar_issues_comment(
     lines.append("")
     lines.append(
         "If this issue is a duplicate, close it with a link to the original. "
-        "Remove the `agent-todo` label or comment `@repokeeper go` again to "
+        "Remove the `agent-todo` label or comment `/repokeeper go` again to "
         "proceed anyway."
     )
     return "\n".join(lines)
@@ -1427,7 +1427,7 @@ def run_agent(
                 f"**Summary:** {plan_detail['summary']}\n"
                 f"**Files to edit:** {', '.join(plan_detail['changed_files']) or '(none)'}\n"
                 f"**Files to create:** {', '.join(plan_detail['new_files']) or '(none)'}\n\n"
-                f"*No changes were applied. Use `@repokeeper go` or `agent-todo` label to implement.*",
+                f"*No changes were applied. Use `/repokeeper go` or `agent-todo` label to implement.*",
             )
             return {"skip": True, "reason": "dry-run", "pr_url": None, "plan": plan_detail}
 

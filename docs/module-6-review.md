@@ -13,7 +13,7 @@ code quality.
 ## How It Works
 
 1. **Triggered by label or comment** — add the `agent-review` label to a PR, or
-   comment `@repokeeper review`.
+   comment `/repokeeper review`.
 2. **Reads PR diff** — fetches all changed files with patches (up to a size
    limit).
 3. **Collects repo context** — scans relevant files for tech stack, code style,
@@ -39,11 +39,11 @@ PR → Labels → agent-review
 
 ### Method 2: Comment
 
-Comment `@repokeeper review` on a pull request (must be a repo collaborator,
+Comment `/repokeeper review` on a pull request (must be a repo collaborator,
 member, or owner):
 
 ```
-@repokeeper review
+/repokeeper review
 ```
 
 ### Method 3: New commits (incremental re-review)
@@ -195,7 +195,7 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
-        contains(github.event.comment.body, '@repokeeper review')
+        contains(github.event.comment.body, '/repokeeper review')
       )
     permissions:
       contents: read

@@ -18,10 +18,10 @@ Issue → Labels → agent-todo
 
 ### Method 2: Comment
 
-Comment `@repokeeper go` on an issue (must be a repo collaborator):
+Comment `/repokeeper go` on an issue (must be a repo collaborator):
 
 ```
-@repokeeper go
+/repokeeper go
 ```
 
 The agent responds immediately with an acknowledgment comment and begins
@@ -30,7 +30,7 @@ working.
 RepoKeeper discovery modules may add `repokeeper-candidate`,
 `repokeeper-radar`, or `repokeeper-patrol` labels to issues. Those labels are
 handoff context only; they do not trigger implementation. A maintainer must
-still add `agent-todo` or comment `@repokeeper go`.
+still add `agent-todo` or comment `/repokeeper go`.
 
 ## Architecture
 
@@ -57,7 +57,7 @@ still add `agent-todo` or comment `@repokeeper go`.
 
 The GitHub Action listens for:
 - Issue labeled `agent-todo`
-- Comment `@repokeeper go` from a collaborator
+- Comment `/repokeeper go` from a collaborator
 
 The workflow also checks access: only `OWNER`, `MEMBER`, or `COLLABORATOR` can
 trigger via comment.
@@ -339,11 +339,11 @@ agent automatically appends a `-YYYYMMDDHHMMSS` timestamp suffix.
 ## Workflow Trigger Details
 
 ```yaml
-# Triggered by comment "@repokeeper go"
+# Triggered by comment "/repokeeper go"
 if: |
   github.event_name == 'issue_comment' &&
   !github.event.issue.pull_request &&
-  contains(github.event.comment.body, '@repokeeper go') &&
+  contains(github.event.comment.body, '/repokeeper go') &&
   github.event.comment.author_association in ('OWNER', 'MEMBER', 'COLLABORATOR')
 
 # Triggered by label "agent-todo"

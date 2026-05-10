@@ -22,7 +22,7 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         !github.event.issue.pull_request &&
-        contains(github.event.comment.body, '@repokeeper go') &&
+        contains(github.event.comment.body, '/repokeeper go') &&
         (
           github.event.comment.author_association == 'OWNER' ||
           github.event.comment.author_association == 'MEMBER' ||
@@ -81,7 +81,7 @@ git push
 Create a new issue, label it `agent-todo`, and RepoKeeper will analyze your
 codebase and open a PR with the implementation.
 
-Or comment `@repokeeper go` on an existing issue (must be a repo collaborator).
+Or comment `/repokeeper go` on an existing issue (must be a repo collaborator).
 
 ## 4. Optional: create a profile
 

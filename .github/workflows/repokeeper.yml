@@ -5,17 +5,19 @@ on:
     types: [created]
   issues:
     types: [labeled]
+  pull_request_target:
+    types: [labeled]
 
 jobs:
-  repokeeper:
+  agent:
     runs-on: ubuntu-latest
     # Trigger conditions:
-    # 1. Comment "/repokeeper go" on an issue (not a PR), by repo members only
-    # 2. Issue labeled with "agent-todo"
+    # 1. Comment "/repokeeper go" on an issue or PR, by repo members only
+    # 2. Issue labeled "agent-todo"
+    # 3. PR labeled "agent-fix"
     if: |
       (
         github.event_name == 'issue_comment' &&
-        !github.event.issue.pull_request &&
         contains(github.event.comment.body, '/repokeeper go') &&
         (
           github.event.comment.author_association == 'OWNER' ||
@@ -26,6 +28,10 @@ jobs:
       (
         github.event_name == 'issues' &&
         github.event.label.name == 'agent-todo'
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.label.name == 'agent-fix'
       )
     permissions:
       contents: write
@@ -40,10 +46,24 @@ jobs:
         with:
           python-version: '3.10'
 
-      # This repository dogfoods the checked-out source. Published templates use
-      # `pip install repokeeper` so downstream repos run the latest PyPI release.
+      # Dogfooding: install from local checkout so we test the latest source.
+      # Published templates use `pip install repokeeper` for downstream repos.
       - name: Install local checkout
         run: pip install -e .
+
+      - name: Determine context
+        id: ctx
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            echo "issue=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.issue.pull_request }}" != "" ]; then
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run RepoKeeper Agent
         env:
@@ -51,6 +71,18 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_NUMBER: ${{ steps.ctx.outputs.issue }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
-        run: repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"
+        run: |
+          set -euo pipefail
+          if [ -n "$PR_NUMBER" ]; then
+            repokeeper agent \
+              --repo "$GITHUB_REPOSITORY" \
+              --issue "$ISSUE_NUMBER" \
+              --pr "$PR_NUMBER"
+          else
+            repokeeper agent \
+              --repo "$GITHUB_REPOSITORY" \
+              --issue "$ISSUE_NUMBER"
+          fi

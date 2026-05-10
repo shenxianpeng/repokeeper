@@ -1654,6 +1654,13 @@ def run_agent(
         usage = TokenUsage(model=model)
         if backend == "pi":
             logger.info("Running Pi coding agent (%s)...", model)
+
+            # Warn about untracked files that might get swallowed by git add -A.
+            untracked_before = _git("ls-files", "--others", "--exclude-standard",
+                                     capture=True, check=False).stdout.strip()
+            if untracked_before:
+                logger.warning("Untracked files in worktree before Pi:\n%s", untracked_before)
+
             pi_prompt = _build_pi_prompt(issue_data, profile)
             pi_result = _run_pi(pi_prompt, model, llm.api_key)
             if pi_result.returncode != 0:

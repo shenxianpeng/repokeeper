@@ -8,6 +8,7 @@ Provides streaming output, token usage tracking, and cost estimation.
 
 from __future__ import annotations
 
+import datetime as _dt
 import os
 import re
 import sys
@@ -24,7 +25,6 @@ logger = get_logger("llm")
 # Built-in estimates are intentionally conservative snapshots, not billing
 # authority. Override with RKP_LLM_PRICE_<MODEL>_INPUT and
 # RKP_LLM_PRICE_<MODEL>_OUTPUT when provider pricing differs.
-import datetime as _dt
 
 # Date when the built-in pricing data was last reviewed by a human.
 # Run ``repokeeper pricing`` to see if this is still current.

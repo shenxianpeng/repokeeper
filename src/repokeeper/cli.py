@@ -155,6 +155,49 @@ def cmd_health(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pricing(args: argparse.Namespace) -> int:
+    from repokeeper.llm_client import get_pricing_summary
+
+    info = get_pricing_summary()
+
+    print("LLM Pricing (USD per 1M tokens)")
+    print(f"  Last reviewed: {info['last_updated']}")
+    print(f"  Checked today: {info['checked_date']}")
+    print(f"  Age: {info['stale_days']} days", end="")
+    if info["stale"]:
+        print(" [STALE — pricing may be inaccurate]")
+    else:
+        print()
+    print()
+
+    print(f"{'Model':<35} {'Input':>10} {'Output':>10} {'Env Override'}")
+    print("-" * 90)
+    for model, prices in info["models"].items():
+        override = f"RKP_LLM_PRICE_{model.upper().replace('-', '_').replace('.', '_')}_INPUT/OUTPUT"
+        print(
+            f"{model:<35} "
+            f"${prices['input']:>8.2f} "
+            f"${prices['output']:>9.2f} "
+            f"{override}"
+        )
+
+    if info["stale"]:
+        print()
+        print(
+            "Warning: Pricing data is over 90 days old. "
+            "Run `repokeeper pricing` again, or set per-model overrides "
+            "via RKP_LLM_PRICE_<MODEL>_INPUT / RKP_LLM_PRICE_<MODEL>_OUTPUT "
+            "environment variables."
+        )
+        return 1
+
+    if args.json:
+        import json as _json
+        print(_json.dumps(info, indent=2))
+
+    return 0
+
+
 def cmd_agent(args: argparse.Namespace) -> int:
     result = run_agent(
         gh_token=args.github_token,
@@ -549,6 +592,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_remote(health)
     health.add_argument("--path", default=".", help="Local repository path for dependency scanning")
     health.set_defaults(func=cmd_health)
+
+    pricing = subparsers.add_parser("pricing", help="Show LLM pricing and freshness")
+    pricing.add_argument("--json", action="store_true", help="Output as JSON")
+    pricing.set_defaults(func=cmd_pricing)
 
     agent = subparsers.add_parser("agent", help="Run Implementation Agent for an issue")
     add_common_remote(agent)

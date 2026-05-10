@@ -24,6 +24,12 @@ logger = get_logger("llm")
 # Built-in estimates are intentionally conservative snapshots, not billing
 # authority. Override with RKP_LLM_PRICE_<MODEL>_INPUT and
 # RKP_LLM_PRICE_<MODEL>_OUTPUT when provider pricing differs.
+import datetime as _dt
+
+# Date when the built-in pricing data was last reviewed by a human.
+# Run ``repokeeper pricing`` to see if this is still current.
+_PRICING_LAST_UPDATED = _dt.date(2026, 5, 10)
+
 PRICING: dict[str, dict[str, float]] = {
     "deepseek-chat": {"input": 0.14, "output": 0.28},
     "deepseek-reasoner": {"input": 0.55, "output": 2.19},
@@ -90,6 +96,34 @@ def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
     if pricing is None:
         return 0.0
     return (prompt_tokens * pricing["input"] + completion_tokens * pricing["output"]) / 1_000_000
+
+
+def get_pricing_summary() -> dict[str, Any]:
+    """Return the current pricing table with freshness metadata.
+
+    Returns:
+        Dict with keys ``last_updated`` (ISO date), ``stale`` (bool),
+        ``stale_days`` (int), and ``models`` (dict of model → pricing).
+    """
+    today = _dt.date.today()
+    stale_days = (today - _PRICING_LAST_UPDATED).days
+    return {
+        "last_updated": _PRICING_LAST_UPDATED.isoformat(),
+        "checked_date": today.isoformat(),
+        "stale_days": stale_days,
+        "stale": stale_days > 90,
+        "models": {
+            model: {
+                "input": prices["input"],
+                "output": prices["output"],
+                "env_override": (
+                    f"RKP_LLM_PRICE_{_pricing_env_key(model)}_INPUT / "
+                    f"RKP_LLM_PRICE_{_pricing_env_key(model)}_OUTPUT"
+                ),
+            }
+            for model, prices in PRICING.items()
+        },
+    }
 
 
 # ─── OpenAI-compatible client ────────────────────────────────────────────────

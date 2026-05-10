@@ -22,6 +22,36 @@ Zero config. GitHub-native. ~$0.01 per PR with DeepSeek.
 
 ---
 
+```mermaid
+flowchart TD
+    A[GitHub Issue / Comment] --> B{Trigger?}
+    B -->|@repokeeper go or agent-todo label| C[RepoKeeper Agent]
+    C --> D[Read Codebase + Issue]
+    D --> E[Implement & Verify]
+    E --> F[Push Branch + Open PR]
+    F --> G[Maintainer Reviews & Merges]
+    G --> H[Issue Closed]
+    
+    I[Schedule / Cron] --> J[Daily Patrol]
+    J --> K[Scan Dependencies]
+    J --> L[Check CI Status]
+    J --> M[Find Stale Issues]
+    K --> N[Open Update PRs]
+    L --> O[Diagnose Failures]
+    M --> P[Notify Maintainer]
+    
+    Q[Community Discussions] --> R[Radar Monitor]
+    R --> S[AI Classify]
+    S --> T[Auto-create Issues]
+    T --> U[Notify via Email/Telegram/WeChat]
+
+    style A fill:#e1f5fe,stroke:#01579b
+    style C fill:#fff3e0,stroke:#e65100
+    style G fill:#e8f5e9,stroke:#1b5e20
+    style J fill:#f3e5f5,stroke:#4a148c
+    style R fill:#fce4ec,stroke:#b71c1c
+```
+
 ## Why RepoKeeper?
 
 Open source maintenance is a second job you didn't sign up for. AI coding

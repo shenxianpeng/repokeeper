@@ -14,6 +14,8 @@ on:
     types: [created]
   issues:
     types: [labeled]
+  pull_request_target:
+    types: [labeled]
 
 jobs:
   agent:
@@ -21,7 +23,6 @@ jobs:
     if: |
       (
         github.event_name == 'issue_comment' &&
-        !github.event.issue.pull_request &&
         contains(github.event.comment.body, '/repokeeper go') &&
         (
           github.event.comment.author_association == 'OWNER' ||
@@ -32,23 +33,44 @@ jobs:
       (
         github.event_name == 'issues' &&
         github.event.label.name == 'agent-todo'
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.label.name == 'agent-fix'
       )
     permissions:
       contents: write
       issues: write
       pull-requests: write
     steps:
+      - name: Determine context
+        id: ctx
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            echo "issue=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.issue.pull_request }}" != "" ]; then
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: shenxianpeng/repokeeper/agent@v1
         with:
           repo: ${{ github.repository }}
-          issue: ${{ github.event.issue.number }}
+          issue: ${{ steps.ctx.outputs.issue }}
+          pr: ${{ steps.ctx.outputs.pr }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
           llm_base_url: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
           github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
 ```
 
-The composite action bundles checkout, Python setup, installation, and the agent
-run into a single step.
+The composite action bundles checkout, Python setup, Pi agent runtime
+(Node.js + `@earendil-works/pi-coding-agent`), and the agent run into a single
+step.
 
 You can also run `pip install repokeeper && repokeeper init . --minimal` if
 you prefer the CLI to write the profile and workflow.
@@ -81,12 +103,14 @@ git push
 Create a new issue, label it `agent-todo`, and RepoKeeper will analyze your
 codebase and open a PR with the implementation.
 
-Or comment `/repokeeper go` on an existing issue (must be a repo collaborator).
+Or comment `/repokeeper go` on an existing issue or PR (must be a repo
+collaborator).  On a PR, RepoKeeper enters **fix mode**: reads the feedback,
+generates fixes, and pushes to the same branch.
 
 ## 4. Optional: create a profile
 
 RepoKeeper runs with defaults, but `repokeeper.yml` lets you customize style,
-verification commands, and skip rules:
+verification commands, backend, and skip rules:
 
 ```bash
 cat > repokeeper.yml <<'EOF'
@@ -98,11 +122,17 @@ style:
 
 agent:
   model: deepseek-chat
+  backend: native            # native | pi (autonomous agent loop)
   verify_commands:
     - ruff check .
     - pytest tests
 EOF
 ```
+
+Set `backend: pi` for complex issues that need multi-file exploration and
+self-verification.  Pi reads files, runs tests, and iterates autonomously.
+The composite action includes Node.js and Pi automatically — just change
+the config.
 
 Run the local setup check any time:
 
@@ -123,4 +153,16 @@ repokeeper describe --repo owner/repo --pr 42  # auto-generate PR description
 
 ---
 
-That's it. RepoKeeper can now handle issue-triggered implementation PRs.
+## Trigger reference
+
+| Trigger | What happens |
+|---------|-------------|
+| Label `agent-todo` on an issue | Agent implements the issue → opens a PR |
+| Comment `/repokeeper go` on an issue | Same as `agent-todo` |
+| Comment `/repokeeper go` on a PR | Fix mode: reads feedback → pushes fixes |
+| Label `agent-fix` on a PR | Same as PR comment trigger |
+| Comment `/repokeeper review` on a PR | Code review with inline comments |
+| Label `agent-review` on a PR | Same as review comment trigger |
+
+That's it. RepoKeeper can now handle issue-triggered implementation PRs,
+conversational PR fixes, and inline code reviews.

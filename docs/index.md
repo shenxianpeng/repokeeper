@@ -46,8 +46,10 @@ hide:
     <p>
       Copilot and Cursor are AI coding agents that work with you in the editor.
       PR Agent (Qodo) automates PR workflows.
-      RepoKeeper handles the maintenance queue when you are away — triaging,
-      scanning, labeling, and fixing around the clock.
+      RepoKeeper runs your repo while you sleep — triaging issues, implementing
+      fixes, reviewing PRs with inline comments, and keeping dependencies fresh
+      across 8 ecosystems.  Two backends: native (fast, cheap) and Pi
+      (autonomous agent loop for complex tasks).
     </p>
   </section>
 
@@ -55,10 +57,13 @@ hide:
     <article class="rk-panel">
       <h2>What ships now</h2>
       <ul>
-        <li>Issue-triggered implementation agent for GitHub repositories</li>
+        <li>Issue-triggered implementation agent with native and Pi backends</li>
+        <li>Conversational PR fix mode — comment on a PR, agent fixes it</li>
+        <li>Inline code review with severity indicators on specific lines</li>
+        <li>Auto-labeler for issues and PRs (15 categories, diff-aware)</li>
         <li>Profile-driven code style, skip keywords, and PR guardrails</li>
         <li>Pre-PR verification through discovered or configured commands</li>
-        <li>Community radar and daily patrol reports for maintainer visibility</li>
+        <li>Community radar (issues + discussions) and daily patrol reports</li>
       </ul>
     </article>
 
@@ -68,7 +73,8 @@ hide:
         <li>Copy one GitHub Actions workflow into the repository.</li>
         <li>Add a <code>DEEPSEEK_API_KEY</code> repository secret.</li>
         <li>Label an issue <code>agent-todo</code> or comment <code>/repokeeper go</code>.</li>
-        <li>Review the generated branch and pull request.</li>
+        <li>Review the generated pull request.</li>
+        <li>Comment <code>/repokeeper go</code> on the PR with feedback to get fixes.</li>
       </ol>
     </article>
 
@@ -82,8 +88,7 @@ hide:
       <div class="rk-terminal__body">
         <div><span class="t-comment"># label: agent-todo</span></div>
         <div><span class="t-label">[repokeeper]</span> <span class="t-white">Issue #42: Add dark mode toggle</span></div>
-        <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Collecting repository context...</span></div>
-        <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Calling LLM (deepseek-chat)...</span></div>
+        <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Running Pi coding agent (deepseek-chat)...</span></div>
         <div><span class="t-label">[repokeeper]</span> <span class="t-white">Plan: Add theme state and styles</span></div>
         <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Verifying: ruff check .</span></div>
         <div><span class="t-label">[repokeeper]</span> <span class="t-dim">Verifying: pytest tests</span></div>
@@ -111,8 +116,9 @@ hide:
         <tr><td>Primary job</td><td>AI agent coding in your editor</td><td>Automate PR workflows</td><td>Maintain the repository queue</td></tr>
         <tr><td>Interface</td><td>Editor session</td><td>PR comments, CLI</td><td>Issues, Actions, branches, PRs</td></tr>
         <tr><td>Timing</td><td>When you are coding</td><td>On PR events</td><td>On labels, comments, and schedules</td></tr>
-        <tr><td>Verification</td><td>Developer-run checks</td><td>AI review &amp; suggestions</td><td>Configured pre-PR commands</td></tr>
-        <tr class="rk-highlight"><td>Output</td><td>Code changes in-editor</td><td>PR descriptions &amp; reviews</td><td>Reviewable pull requests</td></tr>
+        <tr><td>Backend</td><td>Single model</td><td>Single model</td><td>Native + Pi agent loop</td></tr>
+        <tr><td>Verification</td><td>Developer-run checks</td><td>AI review &amp; suggestions</td><td>Pre-PR lint + test commands</td></tr>
+        <tr class="rk-highlight"><td>Output</td><td>Code changes in-editor</td><td>PR descriptions &amp; reviews</td><td>Reviewable pull requests + inline comments</td></tr>
       </tbody>
     </table>
   </section>

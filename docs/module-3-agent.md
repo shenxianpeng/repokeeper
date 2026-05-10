@@ -6,23 +6,12 @@ review.
 
 ## How to Trigger
 
-There are two ways to invoke the agent:
-
-### Method 1: Label
-
-Add the `agent-todo` label to any issue:
-
-```
-Issue → Labels → agent-todo
-```
-
-### Method 2: Comment
-
-Comment `/repokeeper go` on an issue (must be a repo collaborator):
-
-```
-/repokeeper go
-```
+| Trigger | Context | What happens |
+|---------|---------|-------------|
+| Label `agent-todo` on an issue | Issue | Agent implements → opens a PR |
+| Comment `/repokeeper go` on an issue | Issue | Same as `agent-todo` |
+| Comment `/repokeeper go` on a PR | PR | **Fix mode** — reads feedback → pushes fixes |
+| Label `agent-fix` on a PR | PR | Same as PR comment trigger |
 
 The agent responds immediately with an acknowledgment comment and begins
 working.
@@ -32,23 +21,55 @@ RepoKeeper discovery modules may add `repokeeper-candidate`,
 handoff context only; they do not trigger implementation. A maintainer must
 still add `agent-todo` or comment `/repokeeper go`.
 
+## Backends
+
+RepoKeeper supports two backends, configured in `repokeeper.yml`:
+
+```yaml
+agent:
+  backend: native   # or pi
+```
+
+### Native (default)
+
+Single LLM call with system prompt + JSON output.  Fast and cheap (~$0.001
+per PR).  Best for simple, well-scoped issues (single-file changes, config
+updates, small fixes).
+
+### Pi
+
+Autonomous agent loop powered by [`pi`](https://github.com/earendil-works/pi).
+Pi reads files, makes changes, runs tests, sees the output, and iterates until
+the task is complete.  Better for complex issues (multi-file refactors,
+cross-module changes, anything that needs exploration).
+
+```yaml
+agent:
+  backend: pi
+  model: deepseek-chat
+```
+
+The composite action includes Node.js and Pi automatically — just set the
+config.  Pi runs with a 15-minute timeout.  No additional workflow
+configuration needed.
+
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│              Implementation Agent                     │
-├──────────┬──────────┬──────────┬─────────────────────┤
-│  Trigger │  Context │  LLM     │  Git + PR           │
-│          │          │          │                     │
-│  label:  │  Read    │  Read    │  Create branch      │
-│  agent-  │  repo    │  issue   │  Apply changes      │
-│  todo    │  files   │  + code  │  Push to remote     │
-│          │  (60 max)│  + style │  Open PR            │
-│  comment:│          │  → JSON  │  Post comment       │
-│  @repo-  │          │  plan    │  with PR link       │
-│  keeper  │          │          │                     │
-│  go      │          │          │                     │
-└──────────┴──────────┴──────────┴─────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                   Implementation Agent                       │
+├──────────┬──────────┬──────────────────┬────────────────────┤
+│  Trigger │  Context │  Backend         │  Git + PR          │
+│          │          │                  │                    │
+│  label:  │  Read    │  Native:         │  Create branch     │
+│  agent-  │  repo    │  LLM → JSON plan │  Apply changes     │
+│  todo    │  files   │  ~$0.001         │  Push to remote    │
+│          │  (60 max)│                  │  Open PR           │
+│  comment:│          │  Pi:              │  Post comment      │
+│  /repo-  │          │  agent loop       │  with PR link      │
+│  keeper  │          │  ~$0.01-0.05     │                    │
+│  go      │          │                  │                    │
+└──────────┴──────────┴──────────────────┴────────────────────┘
 ```
 
 ## What Happens Step by Step
@@ -57,7 +78,9 @@ still add `agent-todo` or comment `/repokeeper go`.
 
 The GitHub Action listens for:
 - Issue labeled `agent-todo`
-- Comment `/repokeeper go` from a collaborator
+- Comment `/repokeeper go` on an issue (collaborator)
+- Comment `/repokeeper go` on a PR — enters **fix mode**
+- PR labeled `agent-fix`
 
 The workflow also checks access: only `OWNER`, `MEMBER`, or `COLLABORATOR` can
 trigger via comment.
@@ -352,6 +375,24 @@ if: |
   github.event.label.name == 'agent-todo'
 ```
 
+## PR Fix Mode
+
+When RepoKeeper has already opened a PR and you find issues, you can ask it
+to fix them without opening a new PR:
+
+1. Comment `/repokeeper go` on the PR with your feedback
+2. Or label the PR with `agent-fix`
+
+The agent:
+- Reads the PR diff, all comments, and conversation history
+- Labels previous bot replies as "previous fix attempt" so it learns from
+  earlier rounds
+- Checks out the PR branch, makes fixes, and pushes to the same branch
+- Posts a comment summarizing the changes
+
+You can repeat this as many times as needed — each round includes the full
+conversation history so the agent builds on previous attempts.
+
 ## API Reference
 
 ### `run_agent(gh_token, repository, issue_number, llm_api_key, llm_base_url) → dict`
@@ -383,10 +424,14 @@ Check if the issue matches any skip keywords.
 ## Best Practices
 
 1. **Start small.** First issues should be well-scoped, single-file changes.
-2. **Review thoroughly.** The agent is fast but not infallible. Always review.
-3. **Use skip keywords.** Add phrases like `security`, `auth`, `breaking` to
+2. **Use Pi for complex work.** Set `backend: pi` for multi-file features
+   or refactors — the agent reads, tests, and self-corrects autonomously.
+3. **Review thoroughly.** The agent is fast but not infallible. Always review.
+4. **Use skip keywords.** Add phrases like `security`, `auth`, `breaking` to
    prevent the agent from touching sensitive areas.
-4. **Provide clear issues.** The more specific the issue description, the
+5. **Provide clear issues.** The more specific the issue description, the
    better the implementation.
-5. **Iterate on style.** Update `style.code_style` in your profile as you
+6. **Use fix mode for iteration.** Instead of opening a new issue, comment
+   `/repokeeper go` on the PR with feedback — the agent fixes in-place.
+7. **Iterate on style.** Update `style.code_style` in your profile as you
    discover what the agent gets wrong.

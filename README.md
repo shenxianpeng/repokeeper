@@ -37,18 +37,21 @@ issues, bumping dependencies, diagnosing CI, responding to the community?
 | How | Reads codebase → implements → verifies | PR lifecycle automation | Reads issues + codebase → opens verified PRs |
 | When | While you code | On PR events | 24/7 on schedule (labels, comments, cron) |
 | Community | No | No | Monitors, classifies, responds |
+| Code review | No | AI review & suggestions | Inline line-level comments |
 | Dependencies | No | No | Scans 8 ecosystems for outdated deps |
 | CI | No | No | Diagnoses failures, suggests fixes |
+| Backend | Single model | Single model | Native + Pi agent loop |
 | **Cost** | $10–39/month subscription | Free OSS / paid plans | ~$0.01 per PR (your own LLM key) |
 | Config | IDE settings | CLI / PR comments | One YAML (or zero) |
 
 ## What It Does
 
-- **🔭 Community Radar** — Monitors GitHub issues **and discussions** for keywords. AI classifies hits as bugs, feature requests, or noise. **Auto-creates issues** with deduplication and RepoKeeper branding, linking back to original discussions. Notifies you via email, Telegram, or WeChat.
+- **🔭 Community Radar** — Monitors GitHub issues **and discussions** for keywords. AI classifies hits as bugs, feature requests, or noise. **Auto-creates issues** with deduplication and RepoKeeper branding, linking back to original discussions. Notifies via email, Telegram, or WeChat.
 - **🔍 Daily Patrol** — Scans **8 ecosystems** (pip, npm, Go, Cargo, Bundler, Composer, Maven, Gradle) for outdated deps. Diagnoses CI failures with real job/step data. **Auto-fixes CI** by opening repair PRs. Finds stale issues. Health score every weekday morning.
-- **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. **Streams LLM output** in real-time. **Estimates token cost**. Supports **DeepSeek, OpenAI, and Anthropic Claude** models.
-- **🏷️ Auto-Labeler** — AI classifies new issues and PRs, picks labels from your repo's existing set (matching naming conventions), and creates new labels only when needed — with consistent style and descriptions. Supports issue and PR labeling with diff-aware classification.
-- **👤 Maintainer Profile** — One YAML file describing your code style, tone, PR standards. *Or skip it — defaults work.*
+- **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. Supports **two backends**: native (single LLM call, ~$0.001) and **Pi** (autonomous agent loop, reads files, runs tests, self-corrects). **PR fix mode**: comment `/repokeeper go` on a PR with feedback → agent reads the conversation → pushes fixes to the same branch.
+- **📝 Code Review Agent** — Reads PR diffs → checks against your profile → posts **inline line-level comments** with severity indicators and suggestion blocks. Incremental re-review on new commits. Auto-generates PR descriptions from diffs.
+- **🏷️ Auto-Labeler** — AI classifies new issues and PRs, picks labels from your repo's existing set (matching naming conventions), and creates new labels only when needed — with consistent style and descriptions. Diff-aware PR classification.
+- **👤 Maintainer Profile** — One YAML file. Code style, tone, PR standards, tech stack preferences, skip keywords, verification commands. *Or skip it — defaults work.*
 
 ## Architecture
 
@@ -107,6 +110,8 @@ on:
     types: [created]
   issues:
     types: [labeled]
+  pull_request_target:
+    types: [labeled]
 
 jobs:
   agent:
@@ -114,7 +119,6 @@ jobs:
     if: |
       (
         github.event_name == 'issue_comment' &&
-        !github.event.issue.pull_request &&
         contains(github.event.comment.body, '/repokeeper go') &&
         (
           github.event.comment.author_association == 'OWNER' ||
@@ -125,16 +129,36 @@ jobs:
       (
         github.event_name == 'issues' &&
         github.event.label.name == 'agent-todo'
+      ) ||
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.label.name == 'agent-fix'
       )
     permissions:
       contents: write
       issues: write
       pull-requests: write
     steps:
+      - name: Determine context
+        id: ctx
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            echo "issue=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.issue.pull_request }}" != "" ]; then
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: shenxianpeng/repokeeper/agent@v1
         with:
           repo: ${{ github.repository }}
-          issue: ${{ github.event.issue.number }}
+          issue: ${{ steps.ctx.outputs.issue }}
+          pr: ${{ steps.ctx.outputs.pr }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
           llm_base_url: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
           github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
@@ -171,7 +195,9 @@ Paste this into any AI coding agent (Copilot Chat, Claude Code, Cursor, Windsurf
 
 ### Trigger the agent
 
-Label any issue `agent-todo` — or comment `/repokeeper go`.
+- Label any issue `agent-todo` — or comment `/repokeeper go`.
+- Label a PR `agent-fix` — or comment `/repokeeper go` with feedback on a PR.
+- Comment `/repokeeper review` on a PR for inline code review.
 
 ---
 
@@ -221,9 +247,10 @@ opening a pull request.
 
 ## Safety Model
 
-RepoKeeper creates reviewable pull requests; it does not merge them for you.
-The default workflow limits write access to branches, issue comments, and pull
-requests, and the agent blocks edits under `.github/workflows/`. See the
+RepoKeeper creates reviewable pull requests and inline code review comments;
+it does not approve or merge for you. The default workflow limits write
+access to branches, issue comments, and pull requests, and the agent blocks
+edits under `.github/workflows/`. See the
 [Security guide](https://shenxianpeng.github.io/repokeeper/security/) before
 enabling it on sensitive repositories.
 

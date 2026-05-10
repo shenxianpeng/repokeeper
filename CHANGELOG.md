@@ -33,6 +33,8 @@
 
 - accurate 4-way comparison table with Copilot, CodeRabbit, PR-Agent by @shenxianpeng (3927e5b)
 
+- update CHANGELOG.md [skip ci] (7e0a6a8)
+
 
 
 ### Fixed
@@ -55,6 +57,8 @@
 - warn about untracked files before Pi runs by @shenxianpeng (4097ebf)
 
 - replace git add -A with git add -u + explicit new file staging by @shenxianpeng (45c652c)
+
+- ensure nav links and table rows stay readable in light mode by @shenxianpeng (0848814)
 
 
 ## v1.2.0 - 2026-05-10

@@ -29,6 +29,10 @@
 
 - update README and docs for v1.3 — Pi, PR fix, inline review by @shenxianpeng (6b01e6b)
 
+- update CHANGELOG.md [skip ci] (b278b7a)
+
+- accurate 4-way comparison table with Copilot, CodeRabbit, PR-Agent by @shenxianpeng (3927e5b)
+
 
 
 ### Fixed

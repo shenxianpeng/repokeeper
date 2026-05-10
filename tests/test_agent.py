@@ -2645,3 +2645,383 @@ def test_run_agent_similar_issue_check_disabled(monkeypatch):
     )
     assert should_proceed is True
     assert "similar" not in result.get("reason", "")
+
+
+# ── Integration: full run_agent pipeline (dry-run) ──────────────────────────
+
+
+def test_run_agent_dry_run_full_pipeline(monkeypatch, tmp_path):
+    """dry_run=True exercises the full pipeline up to PR creation."""
+    monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
+        "maintainer": "test",
+        "agent": {
+            "implement": True,
+            "skip_keywords": [],
+            "similar_issue_check": False,
+            "smart_file_selection": False,
+            "max_fix_attempts": -1,
+            "model": "deepseek-chat",
+            "temperature": 0.1,
+            "stream": False,
+            "max_context_files": 5,
+        },
+        "tone": {"style": "friendly", "language": "en"},
+        "style": {"code_style": "PEP8"},
+        "tech": {"preferred": [], "avoid": []},
+        "pr": {"max_files_per_pr": 15},
+    })
+
+    issue_obj = MagicMock()
+    repo_mock = MagicMock()
+    repo_mock.full_name = "owner/repo"
+    repo_mock.get_issue.return_value = issue_obj
+    repo_mock.default_branch = "main"
+
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
+
+    monkeypatch.setattr(agent, "get_issue_data", lambda repo, num: {
+        "number": 1, "title": "Test feature", "body": "Implement X",
+        "labels": ["agent-todo"], "comments": [],
+    })
+
+    monkeypatch.setattr(agent, "collect_repo_files",
+                        lambda max_files=60, target_tokens=None: {"src/app.py": "print('hi')"})
+    monkeypatch.setattr(agent, "build_context_string", lambda files: "### src/app.py\n```\nprint('hi')\n```")
+
+    plan = {
+        "skip": False,
+        "summary": "Added feature X.",
+        "branch_name": "repokeeper/issue-1-feature-x",
+        "commit_message": "feat: add feature X",
+        "edits": [{"path": "src/app.py", "find": "print('hi')", "replace": "print('hello')"}],
+        "patch": "",
+        "changes": {"src/app.py": "print('hello')"},
+        "new_files": {},
+    }
+
+    def fake_call_llm(issue_data, context_str, profile, llm_client):
+        return plan, MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15, cost_usd=0.001)
+
+    monkeypatch.setattr(agent, "call_llm", fake_call_llm)
+
+    result = agent.run_agent(
+        gh_token="tk", repository="owner/repo", issue_number=1,
+        llm_api_key="key", dry_run=True,
+    )
+
+    assert result["skip"] is True
+    assert result["reason"] == "dry-run"
+    assert "plan" in result
+    assert result["plan"]["summary"] == "Added feature X."
+    assert "src/app.py" in result["plan"]["changed_files"]
+
+
+def test_run_agent_disabled_in_profile(monkeypatch):
+    """When agent.implement is False, returns immediately."""
+    monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
+        "maintainer": "test",
+        "agent": {"implement": False},
+    })
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
+
+    result = agent.run_agent(
+        gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key",
+    )
+    assert result["skip"] is True
+    assert "disabled" in result["reason"]
+
+
+def test_run_agent_missing_config_empty_env(monkeypatch):
+    """run_agent raises ConfigError when all required env vars are missing."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("REPOKEEPER_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    with pytest.raises(ConfigError, match="Missing required configuration"):
+        agent.run_agent()
+
+
+# ── Branch collision ────────────────────────────────────────────────────────
+
+
+def test_resolve_branch_collision_no_collision():
+    """When branch name is unique, it is returned as-is."""
+    repo_mock = MagicMock()
+    existing_branch = MagicMock()
+    existing_branch.name = "main"
+    repo_mock.get_branches.return_value = [existing_branch]
+
+    result = agent._resolve_branch_collision("repokeeper/issue-42-fix", repo_mock)
+    assert result == "repokeeper/issue-42-fix"
+
+
+def test_resolve_branch_collision_with_collision():
+    """When branch name already exists, appends timestamp."""
+    repo_mock = MagicMock()
+    existing_branch = MagicMock()
+    existing_branch.name = "repokeeper/issue-42-fix"
+    repo_mock.get_branches.return_value = [existing_branch]
+
+    result = agent._resolve_branch_collision("repokeeper/issue-42-fix", repo_mock)
+    assert result.startswith("repokeeper/issue-42-fix-")
+    # Should be 14-digit timestamp suffix
+    timestamp_part = result[len("repokeeper/issue-42-fix-"):]
+    assert len(timestamp_part) == 14
+    assert timestamp_part.isdigit()
+
+
+def test_resolve_branch_collision_api_error():
+    """When get_branches fails, appends timestamp anyway."""
+    repo_mock = MagicMock()
+    repo_mock.get_branches.side_effect = RuntimeError("API down")
+
+    result = agent._resolve_branch_collision("repokeeper/issue-42-fix", repo_mock)
+    assert result.startswith("repokeeper/issue-42-fix-")
+
+
+# ── Verification fix loop integration ───────────────────────────────────────
+
+
+def test_verification_fix_loop_passes_on_first_try(monkeypatch):
+    """When all verification commands pass, loop returns immediately."""
+    from unittest.mock import patch
+
+    profile = {
+        "agent": {
+            "model": "deepseek-chat",
+            "max_fix_attempts": 2,
+            "temperature": 0.1,
+        },
+        "style": {"code_style": "PEP8"},
+    }
+
+    result = {
+        "summary": "Fix applied",
+        "branch_name": "repokeeper/issue-1",
+        "commit_message": "fix: bug",
+        "edits": [],
+        "changes": {"a.py": "code"},
+        "new_files": {},
+        "patch": "",
+    }
+
+    issue_data = {"number": 1, "title": "Bug", "body": "Description"}
+
+    # Mock run_verification_commands to return all-passing results
+    with patch("repokeeper.agent.run_verification_commands") as mock_verify:
+        from repokeeper.verifier import VerificationResult
+        mock_verify.return_value = [
+            VerificationResult(command=["ruff", "check", "."], returncode=0, stdout="", stderr=""),
+            VerificationResult(command=["pytest"], returncode=0, stdout="ok", stderr=""),
+        ]
+
+        updated, usage, failures = agent.verification_fix_loop(
+            result, issue_data, profile, MagicMock(),
+        )
+
+    assert failures == []
+    assert "_verification_results" in updated
+    assert len(updated["_verification_results"]) == 2
+
+
+def test_verification_fix_loop_applies_fixes(monkeypatch):
+    """When verification fails, LLM is asked to fix, and fix is applied."""
+    from unittest.mock import patch
+
+    profile = {
+        "agent": {
+            "model": "deepseek-chat",
+            "max_fix_attempts": 1,
+            "temperature": 0.1,
+        },
+        "style": {"code_style": "PEP8"},
+    }
+
+    result = {
+        "summary": "Initial",
+        "branch_name": "repokeeper/issue-1",
+        "commit_message": "fix: bug",
+        "edits": [],
+        "changes": {"a.py": "broken"},
+        "new_files": {},
+        "patch": "",
+    }
+
+    issue_data = {"number": 1, "title": "Bug", "body": "Description"}
+
+    # First verification fails, second passes
+    call_count = 0
+
+    def failing_then_passing(profile_dict, repo_path):
+        nonlocal call_count
+        from repokeeper.verifier import VerificationResult
+        call_count += 1
+        if call_count == 1:
+            return [VerificationResult(command=["ruff"], returncode=1, stdout="", stderr="error")]
+        return [VerificationResult(command=["ruff"], returncode=0, stdout="", stderr="")]
+
+    with patch("repokeeper.agent.run_verification_commands", side_effect=failing_then_passing):
+        # First verif fails → LLM fix call → apply → second verif passes
+        mock_llm = MagicMock()
+        fix_response = MagicMock()
+        fix_response.content = json.dumps({
+            "skip": False,
+            "summary": "Fixed lint error",
+            "branch_name": "repokeeper/issue-1",
+            "commit_message": "fix: lint",
+            "edits": [],
+            "changes": {"a.py": "fixed"},
+            "new_files": {},
+            "patch": "",
+        })
+        fix_response.usage.prompt_tokens = 10
+        fix_response.usage.completion_tokens = 5
+        fix_response.usage.total_tokens = 15
+        fix_response.usage.cost_usd = 0.001
+        mock_llm.chat.return_value = fix_response
+
+        with patch("repokeeper.agent.apply_implementation_changes"):
+            updated, usage, failures = agent.verification_fix_loop(
+                result, issue_data, profile, mock_llm,
+            )
+
+    assert failures == []
+    assert updated["summary"] == "Fixed lint error"
+    assert updated["changes"] == {"a.py": "fixed"}
+
+
+def test_verification_fix_loop_max_attempts_exhausted(monkeypatch):
+    """When all fix attempts fail, returns last failure message."""
+    from unittest.mock import patch
+
+    profile = {
+        "agent": {
+            "model": "deepseek-chat",
+            "max_fix_attempts": 1,
+            "temperature": 0.1,
+        },
+        "style": {"code_style": "PEP8"},
+    }
+
+    result = {
+        "summary": "Initial",
+        "branch_name": "repokeeper/issue-1",
+        "commit_message": "fix: bug",
+        "edits": [],
+        "changes": {"a.py": "broken"},
+        "new_files": {},
+        "patch": "",
+    }
+
+    issue_data = {"number": 1, "title": "Bug", "body": "Description"}
+
+    # Both verification attempts fail
+    with patch("repokeeper.agent.run_verification_commands") as mock_verify:
+        from repokeeper.verifier import VerificationResult
+        mock_verify.return_value = [
+            VerificationResult(command=["ruff"], returncode=1, stdout="", stderr="lint error")
+        ]
+
+        # LLM fix also fails to parse → should produce failure
+        mock_llm = MagicMock()
+        mock_llm.chat.side_effect = LLMParseError("parse failed")
+
+        updated, usage, failures = agent.verification_fix_loop(
+            result, issue_data, profile, mock_llm,
+        )
+
+    assert len(failures) >= 1
+    assert "lint error" in failures[0] or "Verification failed" in failures[0]
+
+
+# ── Run agent with verification fix loop (integration) ──────────────────────
+
+
+def test_run_agent_verification_fix_loop(monkeypatch, tmp_path):
+    """run_agent with max_fix_attempts > 0 runs the fix loop."""
+    monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: {
+        "maintainer": "test",
+        "agent": {
+            "implement": True,
+            "skip_keywords": [],
+            "similar_issue_check": False,
+            "smart_file_selection": False,
+            "max_fix_attempts": 1,
+            "model": "deepseek-chat",
+            "temperature": 0.1,
+            "stream": False,
+            "max_context_files": 5,
+        },
+        "tone": {"style": "friendly", "language": "en"},
+        "style": {"code_style": "PEP8", "linting": False},
+        "tech": {"preferred": [], "avoid": []},
+        "pr": {"max_files_per_pr": 15},
+        "radar": {"enabled": False},
+        "patrol": {"enabled": False},
+        "labeler": {"enabled": False},
+        "review": {"model": None},
+    })
+
+    issue_obj = MagicMock()
+    repo_mock = MagicMock()
+    repo_mock.full_name = "owner/repo"
+    repo_mock.get_issue.return_value = issue_obj
+    repo_mock.default_branch = "main"
+    # No existing branches
+    existing_branch = MagicMock()
+    existing_branch.name = "main"
+    repo_mock.get_branches.return_value = [existing_branch]
+
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock())
+
+    monkeypatch.setattr(agent, "get_issue_data", lambda repo, num: {
+        "number": 1, "title": "Test", "body": "Body",
+        "labels": ["agent-todo"], "comments": [],
+    })
+
+    monkeypatch.setattr(agent, "collect_repo_files",
+                        lambda max_files=60, target_tokens=None: {"a.py": "code"})
+    monkeypatch.setattr(agent, "build_context_string", lambda files: "ctx")
+
+    plan = {
+        "skip": False,
+        "summary": "Done.",
+        "branch_name": "repokeeper/issue-1-fix",
+        "commit_message": "fix: test",
+        "edits": [],
+        "patch": "",
+        "changes": {"a.py": "new code"},
+        "new_files": {},
+    }
+    monkeypatch.setattr(agent, "call_llm",
+                        lambda *a, **kw: (plan, MagicMock(total_tokens=10, cost_usd=0)))
+
+    # Mock verification + git ops so the pipeline completes cleanly
+    monkeypatch.setattr(agent, "apply_implementation_changes", lambda imp, repo_root=".": None)
+    monkeypatch.setattr(agent, "apply_and_push",
+                        lambda imp, tok, repo, prof, already_applied=False, verify=True:
+                        ("repokeeper/issue-1-fix", ["a.py"]))
+    monkeypatch.setattr(agent, "create_pr",
+                        lambda *a, **kw: "https://github.com/owner/repo/pull/1")
+
+    # Verification passes
+    from repokeeper.verifier import VerificationResult
+    monkeypatch.setattr(agent, "run_verification_commands",
+                        lambda profile, repo_path=Path("."): [
+                            VerificationResult(command=["echo"], returncode=0, stdout="", stderr="")
+                        ])
+
+    result = agent.run_agent(
+        gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key",
+    )
+
+    assert result["skip"] is False
+    assert result["pr_url"] is not None

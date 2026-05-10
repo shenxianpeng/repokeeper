@@ -29,11 +29,7 @@
 
 - update README and docs for v1.3 — Pi, PR fix, inline review by @shenxianpeng (6b01e6b)
 
-- update CHANGELOG.md [skip ci] (b278b7a)
-
 - accurate 4-way comparison table with Copilot, CodeRabbit, PR-Agent by @shenxianpeng (3927e5b)
-
-- update CHANGELOG.md [skip ci] (7e0a6a8)
 
 
 
@@ -163,8 +159,6 @@
 - fetch repo labels once in batch mode instead of per-issue by @shenxianpeng (55b4fac)
 
 - update tool comparison — modernize Copilot/Cursor, add PR Agent by @shenxianpeng (ba4f919)
-
-- update CHANGELOG for v1.0.0 by @shenxianpeng (0a5b8ca)
 
 
 

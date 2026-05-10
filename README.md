@@ -24,25 +24,33 @@ Zero config. GitHub-native. ~$0.01 per PR with DeepSeek.
 
 ## Why RepoKeeper?
 
-Open source maintenance is a second job you didn't sign up for. AI coding
-agents like Copilot and Cursor help you write code in the editor. PR Agent
-(Qodo) automates PR workflows. But what about **everything else**? Triaging
-issues, bumping dependencies, diagnosing CI, responding to the community?
+Open source maintenance is a second job you didn't sign up for. GitHub
+Copilot helps you write code in the editor, and its [Code Review](https://docs.github.com/en/copilot/using-github-copilot/code-review/using-copilot-code-review)
+feature reviews PRs. [CodeRabbit](https://coderabbit.ai) and [PR-Agent (Qodo)](https://qodo.ai)
+automate PR workflows with line-level suggestions and descriptions. But what
+about **everything else**? Implementing issues, bumping dependencies,
+diagnosing CI, monitoring your community, and iterating on fixes?
 
-> **Copilot codes with you. PR Agent polishes PRs. RepoKeeper runs your repo while you sleep.**
+> **Copilot codes with you. CodeRabbit and PR-Agent review PRs. RepoKeeper runs your repo while you sleep.**
 
-| | Copilot / Cursor | PR Agent (Qodo) | RepoKeeper |
-|---|---|---|---|
-| What it does | AI agent coding in your editor | Automates PR descriptions, reviews, suggestions | Maintains your repo autonomously |
-| How | Reads codebase → implements → verifies | PR lifecycle automation | Reads issues + codebase → opens verified PRs |
-| When | While you code | On PR events | 24/7 on schedule (labels, comments, cron) |
-| Community | No | No | Monitors, classifies, responds |
-| Code review | No | AI review & suggestions | Inline line-level comments |
-| Dependencies | No | No | Scans 8 ecosystems for outdated deps |
-| CI | No | No | Diagnoses failures, suggests fixes |
-| Backend | Single model | Single model | Native + Pi agent loop |
-| **Cost** | $10–39/month subscription | Free OSS / paid plans | ~$0.01 per PR (your own LLM key) |
-| Config | IDE settings | CLI / PR comments | One YAML (or zero) |
+| | Copilot Code Review | CodeRabbit | PR-Agent (Qodo) | RepoKeeper |
+|---|---|---|---|---|
+| **Issue → PR** | No | No | No | Yes — native + Pi |
+| **Conversational PR fix** | No | No | No | Yes — push to same branch |
+| **Code review** | Yes — PR only | Yes — line-level | Yes — /review | Yes — inline + severity |
+| **PR description generation** | No | Yes | Yes — /describe | Yes — /describe |
+| **Auto-labeling** | No | Yes | Yes | Yes — 15 categories, diff-aware |
+| **Dependency scanning** | No | No | No | Yes — 8 ecosystems |
+| **CI diagnosis + fix** | No | No | No | Yes — auto-repair PRs |
+| **Community monitoring** | No | No | No | Yes — Radar (issues + discussions) |
+| **Scheduled / cron** | No | No | No | Yes — daily patrol |
+| **Multi-model** | GitHub models only | Multiple | Multiple | DeepSeek / OpenAI / Claude |
+| **Backend options** | Single | Single | Single | Native + Pi agent loop |
+| **Profile / config** | `.github/copilot-instructions.md` | `.coderabbit.yaml` | `.pr_agent.toml` | `repokeeper.yml` (one file) |
+| **Interface** | GitHub.com, IDE | GitHub App, web | GitHub Action, CLI | GitHub Actions, CLI, labels, comments |
+| **OSS cost** | Subscription required | Free for public repos | Free for public repos | Free (your own LLM key) |
+| **Setup time** | Enable in settings | Install GitHub App | Copy Action + API key | Copy Action + API key |
+| **Self-hosted** | No | No | Yes | Yes — 5 composite actions |
 
 ## What It Does
 

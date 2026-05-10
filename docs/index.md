@@ -44,12 +44,12 @@ hide:
 
   <section class="rk-band">
     <p>
-      Copilot and Cursor are AI coding agents that work with you in the editor.
-      PR Agent (Qodo) automates PR workflows.
-      RepoKeeper runs your repo while you sleep — triaging issues, implementing
-      fixes, reviewing PRs with inline comments, and keeping dependencies fresh
-      across 8 ecosystems.  Two backends: native (fast, cheap) and Pi
-      (autonomous agent loop for complex tasks).
+      GitHub Copilot helps you code in the editor and review PRs.
+      CodeRabbit and PR-Agent automate PR workflows with line-level suggestions.
+      RepoKeeper does what they don't — implements issues, fixes PRs
+      conversationally, scans 8 ecosystems for outdated dependencies, diagnoses
+      CI failures, and monitors your community.  Two backends: native (fast,
+      cheap) and Pi (autonomous agent loop for complex tasks).
     </p>
   </section>
 
@@ -110,15 +110,19 @@ hide:
     <h2>RepoKeeper vs. AI coding tools</h2>
     <table class="rk-compare">
       <thead>
-        <tr><th></th><th>Copilot / Cursor</th><th>PR Agent (Qodo)</th><th>RepoKeeper</th></tr>
+        <tr><th></th><th>Copilot Code Review</th><th>CodeRabbit</th><th>PR-Agent</th><th>RepoKeeper</th></tr>
       </thead>
       <tbody>
-        <tr><td>Primary job</td><td>AI agent coding in your editor</td><td>Automate PR workflows</td><td>Maintain the repository queue</td></tr>
-        <tr><td>Interface</td><td>Editor session</td><td>PR comments, CLI</td><td>Issues, Actions, branches, PRs</td></tr>
-        <tr><td>Timing</td><td>When you are coding</td><td>On PR events</td><td>On labels, comments, and schedules</td></tr>
-        <tr><td>Backend</td><td>Single model</td><td>Single model</td><td>Native + Pi agent loop</td></tr>
-        <tr><td>Verification</td><td>Developer-run checks</td><td>AI review &amp; suggestions</td><td>Pre-PR lint + test commands</td></tr>
-        <tr class="rk-highlight"><td>Output</td><td>Code changes in-editor</td><td>PR descriptions &amp; reviews</td><td>Reviewable pull requests + inline comments</td></tr>
+        <tr><td>Issue → PR</td><td>—</td><td>—</td><td>—</td><td class="rk-yes">Native + Pi</td></tr>
+        <tr><td>PR fix (conversational)</td><td>—</td><td>—</td><td>—</td><td class="rk-yes">Push to same branch</td></tr>
+        <tr><td>Code review</td><td class="rk-yes">PR only</td><td class="rk-yes">Line-level</td><td class="rk-yes">/review</td><td class="rk-yes">Inline + severity</td></tr>
+        <tr><td>PR description</td><td>—</td><td class="rk-yes">Auto</td><td class="rk-yes">/describe</td><td class="rk-yes">/describe</td></tr>
+        <tr><td>Auto-labeling</td><td>—</td><td class="rk-yes">Yes</td><td class="rk-yes">Yes</td><td class="rk-yes">15 categories, diff-aware</td></tr>
+        <tr><td>Dependency scanning</td><td>—</td><td>—</td><td>—</td><td class="rk-yes">8 ecosystems</td></tr>
+        <tr><td>CI auto-fix</td><td>—</td><td>—</td><td>—</td><td class="rk-yes">Repair PRs</td></tr>
+        <tr><td>Community radar</td><td>—</td><td>—</td><td>—</td><td class="rk-yes">Issues + discussions</td></tr>
+        <tr><td>Scheduled / cron</td><td>—</td><td>—</td><td>—</td><td class="rk-yes">Daily patrol</td></tr>
+        <tr class="rk-highlight"><td>OSS cost</td><td>Subscription</td><td>Free</td><td>Free</td><td>Free (your own LLM key)</td></tr>
       </tbody>
     </table>
   </section>

@@ -38,19 +38,6 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-
-      # Dogfooding: install from local checkout so we test the latest source.
-      # Published templates use `pip install repokeeper` for downstream repos.
-      - name: Install local checkout
-        run: pip install -e .
-
       - name: Determine context
         id: ctx
         run: |
@@ -65,24 +52,11 @@ jobs:
             echo "pr=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run RepoKeeper Agent
-        env:
-          PYTHONUNBUFFERED: 1
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ steps.ctx.outputs.issue }}
-          PR_NUMBER: ${{ steps.ctx.outputs.pr }}
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
-        run: |
-          set -euo pipefail
-          if [ -n "$PR_NUMBER" ]; then
-            repokeeper agent \
-              --repo "$GITHUB_REPOSITORY" \
-              --issue "$ISSUE_NUMBER" \
-              --pr "$PR_NUMBER"
-          else
-            repokeeper agent \
-              --repo "$GITHUB_REPOSITORY" \
-              --issue "$ISSUE_NUMBER"
-          fi
+      - uses: ./agent
+        with:
+          repo: ${{ github.repository }}
+          issue: ${{ steps.ctx.outputs.issue }}
+          pr: ${{ steps.ctx.outputs.pr }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          llm_base_url: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}

@@ -21,52 +21,27 @@ jobs:
   labeler:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-
-      # This repository dogfoods the checked-out source. Published templates use
-      # `pip install repokeeper` so downstream repos run the latest PyPI release.
-      - name: Install local checkout
-        run: pip install -e .
-
-      - name: Run Auto-Labeler
-        env:
-          PYTHONUNBUFFERED: 1
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          REPOKEEPER_GITHUB_TOKEN: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+      - name: Determine target
+        id: target
         run: |
-          set -euo pipefail
-
           if [ -n "${{ github.event.inputs.issue_number }}" ]; then
-            repokeeper labeler \
-              --repo "$GITHUB_REPOSITORY" \
-              --issue "${{ github.event.inputs.issue_number }}" \
-              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+            echo "issue=${{ github.event.inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "pull_request_target" ]; then
-            repokeeper labeler \
-              --repo "$GITHUB_REPOSITORY" \
-              --pr "${{ github.event.pull_request.number }}" \
-              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+            echo "issue=" >> "$GITHUB_OUTPUT"
+            echo "pr=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "issues" ]; then
-            repokeeper labeler \
-              --repo "$GITHUB_REPOSITORY" \
-              --issue "${{ github.event.issue.number }}" \
-              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr=" >> "$GITHUB_OUTPUT"
           else
-            # Batch mode: label all unlabeled open issues
-            repokeeper labeler \
-              --repo "$GITHUB_REPOSITORY" \
-              --summary | tee labeler-summary.md "$GITHUB_STEP_SUMMARY"
+            echo "issue=" >> "$GITHUB_OUTPUT"
+            echo "pr=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload labeler summary
-        if: always()
-        uses: actions/upload-artifact@v7
+      - uses: ./labeler
         with:
-          name: labeler-summary
-          path: labeler-summary.md
+          repo: ${{ github.repository }}
+          issue: ${{ steps.target.outputs.issue }}
+          pr: ${{ steps.target.outputs.pr }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}

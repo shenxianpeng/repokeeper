@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from repokeeper.collaboration import LABELER_LABEL
 from repokeeper.labeler import (
-    LABELER_LABEL,
     LabelerReport,
     LabelerResult,
     _infer_label_naming_convention,

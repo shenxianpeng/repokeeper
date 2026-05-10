@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from .collaboration import LABELER_LABEL
 from .llm_client import parse_llm_json
 from .logs import get_logger
 from .profile import get_module_model, load_profile
@@ -963,11 +962,6 @@ def _label_single(
 
         if result.applied_labels:
             result.action = "labeled"
-            # Also add the LABELER_LABEL for tracking
-            try:
-                apply_labels(gh_client, repo, target_data["number"], [LABELER_LABEL])
-            except Exception:
-                pass
         else:
             result.action = "skipped"
             result.skipped_reason = "failed to apply labels"
@@ -1008,7 +1002,7 @@ def label_unlabeled_issues(
         LabelerReport with results for every issue processed.
     """
     labeler_config = profile.get("labeler", {})
-    exclude = labeler_config.get("exclude_labels", [LABELER_LABEL])
+    exclude = labeler_config.get("exclude_labels", [])
 
     logger.info(f"🏷️ Labeler: finding unlabeled issues in {repo}")
 

@@ -134,19 +134,33 @@ body {
   border-radius: 0.8rem;
   padding-top: 0.4rem;
   padding-bottom: 0.4rem;
+  color: var(--rk-text);
   transition: background-color 160ms ease, transform 160ms ease, color 160ms ease;
 }
 
 .md-nav--primary .md-nav__link:hover,
 .md-nav--secondary .md-nav__link:hover {
   background: color-mix(in srgb, var(--md-primary-fg-color) 9%, transparent);
+  color: var(--rk-text);
   transform: translateX(2px);
+}
+
+.md-nav__link:focus,
+.md-nav__link:focus-visible,
+.md-nav__link:active {
+  color: var(--rk-text) !important;
 }
 
 .md-nav__link--active,
 .md-nav__item .md-nav__link--active {
-  color: var(--md-primary-fg-color);
+  color: var(--md-primary-fg-color) !important;
   font-weight: 700;
+}
+
+/* Ensure nav links are always readable after hover */
+.md-nav__link:focus,
+.md-nav__link:focus-visible {
+  color: var(--rk-text);
 }
 
 .md-typeset {
@@ -453,6 +467,16 @@ body {
 
 .rk-compare tr.rk-highlight td {
   background: color-mix(in srgb, var(--md-accent-fg-color) 7%, transparent);
+}
+
+/* Prevent mkdocs default hover from washing out custom table styles */
+.rk-compare tr:hover td {
+  background: color-mix(in srgb, var(--md-primary-fg-color) 6%, transparent);
+}
+
+.rk-yes {
+  color: var(--rk-green) !important;
+  font-weight: 700;
 }
 
 @media screen and (max-width: 76.2344em) {

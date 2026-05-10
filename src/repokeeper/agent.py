@@ -1110,10 +1110,27 @@ def run_fix_pr(
             pi_result = _run_pi(pi_prompt, model, llm.api_key, workdir=".")
             if pi_result.returncode != 0:
                 logger.warning("Pi exited with code %d", pi_result.returncode)
-                logger.debug("Pi stderr: %s", pi_result.stderr[-500:])
+            if pi_result.stderr.strip():
+                logger.warning("Pi stderr: %s", pi_result.stderr[-1000:])
             logger.info("Pi stdout (last 300): %s", pi_result.stdout[-300:])
 
             result = _parse_pi_result(pi_result.stdout)
+
+            # Detect changes before checking skip/crash.
+            changed = _git("diff", "--name-only", capture=True, check=False).stdout.strip()
+            changed_files_list = changed.splitlines() if changed else []
+
+            # If Pi crashed with no changes, surface the error.
+            if pi_result.returncode != 0 and not changed_files_list:
+                err_snippet = (pi_result.stderr[-800:] if pi_result.stderr.strip()
+                               else "(no stderr output)")
+                pr_obj.create_issue_comment(
+                    f"🤖 **RepoKeeper** (Pi) crashed (exit code {pi_result.returncode}).\n\n"
+                    f"**Stderr:**\n```\n{err_snippet}\n```\n\n"
+                    f"Please check the feedback or try the native backend.")
+                return {"skip": True,
+                        "reason": f"Pi crashed (exit {pi_result.returncode})"}
+
             if result.get("skip"):
                 reason = result.get("reason", "Pi could not fix this PR.")
                 pr_obj.create_issue_comment(
@@ -1122,9 +1139,6 @@ def run_fix_pr(
                 )
                 return {"skip": True, "reason": reason}
 
-            # Detect changes made by Pi
-            changed = _git("diff", "--name-only", capture=True, check=False).stdout.strip()
-            changed_files_list = changed.splitlines() if changed else []
             if not changed_files_list:
                 logger.warning("Pi produced no file changes")
                 pr_obj.create_issue_comment(
@@ -1634,13 +1648,27 @@ def run_agent(
             pi_result = _run_pi(pi_prompt, model, llm.api_key)
             if pi_result.returncode != 0:
                 logger.warning("Pi exited with code %d", pi_result.returncode)
-                logger.debug("Pi stderr: %s", pi_result.stderr[-500:])
+            # Always log stderr — it often contains the real error.
+            if pi_result.stderr.strip():
+                logger.warning("Pi stderr: %s", pi_result.stderr[-1000:])
             result = _parse_pi_result(pi_result.stdout)
             logger.info("Pi stdout (last 300 chars): %s", pi_result.stdout[-300:])
 
             # Detect changed files after Pi ran
             changed = _git("diff", "--name-only", capture=True, check=False).stdout.strip()
             changed_files_list = changed.splitlines() if changed else []
+
+            # If Pi crashed (non-zero exit) with no changes, surface the error.
+            if pi_result.returncode != 0 and not changed_files_list:
+                err_snippet = (pi_result.stderr[-800:] if pi_result.stderr.strip()
+                               else "(no stderr output)")
+                post_comment(issue_obj,
+                    f"🤖 **RepoKeeper** (Pi) crashed (exit code {pi_result.returncode}).\n\n"
+                    f"**Stderr:**\n```\n{err_snippet}\n```\n\n"
+                    f"Please check the issue or try the native backend.")
+                return {"skip": True,
+                        "reason": f"Pi crashed (exit {pi_result.returncode})",
+                        "pr_url": None}
 
             # If Pi skipped or no files changed, return early
             if result.get("skip"):

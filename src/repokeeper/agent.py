@@ -1655,7 +1655,7 @@ def run_agent(
         if backend == "pi":
             logger.info("Running Pi coding agent (%s)...", model)
 
-            # Warn about untracked files that might get swallowed by git add -A.
+            # Warn about untracked files that the agent will not stage.
             untracked_before = _git("ls-files", "--others", "--exclude-standard",
                                      capture=True, check=False).stdout.strip()
             if untracked_before:
@@ -1706,20 +1706,20 @@ def run_agent(
             impl_usage = TokenUsage(model=model, total_tokens=0, cost_usd=0)
             verification_results: list[VerificationResult] = []
 
-            # Directly commit and push — Pi changes are already on disk
+            # Let apply_and_push create branch + stage + commit + push.
+            # Pi changes are already on disk; apply_implementation_changes
+            # is a no-op for the Pi result dict (empty edits/changes).
             logger.info("Plan (Pi): %s", result.get("summary", ""))
             branch_name = f"repokeeper/issue-{issue_number}-pi"
             result["branch_name"] = _resolve_branch_collision(branch_name, repo)
             result["commit_message"] = result.get("commit_message",
                                                     f"fix: address issue #{issue_number} (Pi)")
-            _git("add", "-A")
-            _git("commit", "-m", result["commit_message"], check=False)
 
             assert gh_token is not None
             assert repository is not None
             branch, pushed_files = apply_and_push(
                 result, gh_token, repository, profile,
-                already_applied=True, verify=False,
+                already_applied=False, verify=False,
             )
 
             pr_url = create_pr(repo, issue_data, result, branch, pushed_files, profile,

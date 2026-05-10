@@ -311,7 +311,18 @@ def apply_and_push(
     if not already_applied:
         apply_implementation_changes(implementation)
 
-    git("add", "-A")
+    # Stage tracked file changes only — never use -A (swallows garbage).
+    git("add", "-u", ".")
+    # Explicitly stage new files that the implementation created.
+    for path in implementation_file_paths(implementation):
+        p = Path(path)
+        if p.exists() and not p.is_dir():
+            git("add", path)
+    # Pi may create new files not listed in the implementation dict.
+    new_files = git("ls-files", "--others", "--exclude-standard",
+                     capture=True, check=False).stdout.strip()
+    for nf in new_files.splitlines():
+        git("add", nf)
 
     # Verify something changed
     diff = git("diff", "--cached", "--name-only", capture=True).stdout.strip()
@@ -375,7 +386,17 @@ def fix_and_push(
 
     apply_implementation_changes(implementation)
 
-    git("add", "-A")
+    # Stage tracked file changes only — never use -A (swallows garbage).
+    git("add", "-u", ".")
+    for path in implementation_file_paths(implementation):
+        p = Path(path)
+        if p.exists() and not p.is_dir():
+            git("add", path)
+    # Pi may create new files not listed in the implementation dict.
+    new_files = git("ls-files", "--others", "--exclude-standard",
+                    capture=True, check=False).stdout.strip()
+    for nf in new_files.splitlines():
+        git("add", nf)
     diff = git("diff", "--cached", "--name-only", capture=True).stdout.strip()
     if not diff:
         raise GitOperationError("Fix produced no file changes.")

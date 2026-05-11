@@ -3,6 +3,7 @@ name: Update v1 Tag
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   move-v1:

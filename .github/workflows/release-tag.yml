@@ -34,7 +34,7 @@ jobs:
             TARGET=$(git tag --list 'v*.*.*' --sort=-version:refname | head -n1)
           fi
           echo "Pointing v1 -> $TARGET"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git tag -f v1 "$TARGET"
           git push -f origin v1

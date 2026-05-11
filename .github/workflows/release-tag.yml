@@ -7,8 +7,7 @@ on:
     inputs:
       tag_name:
         description: 'Tag to point v1 at (e.g. v1.2.3)'
-        required: true
-        default: v1
+        required: false
 
 jobs:
   move-v1:

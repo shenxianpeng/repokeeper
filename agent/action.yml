@@ -46,7 +46,7 @@ runs:
     - name: Install RepoKeeper
       shell: bash
       run: |
-        if [ -f pyproject.toml ]; then pip install -e .; else pip install repokeeper; fi
+        pip install repokeeper
 
     - name: Run Implementation Agent
       shell: bash

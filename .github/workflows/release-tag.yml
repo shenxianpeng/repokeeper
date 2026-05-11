@@ -22,7 +22,15 @@ jobs:
 
       - name: Move v1 tag to latest release
         run: |
-          TARGET="${{ github.event.release.tag_name || inputs.tag_name }}"
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            TARGET="${{ github.event.release.tag_name }}"
+          elif [ -n "${{ inputs.tag_name }}" ]; then
+            TARGET="${{ inputs.tag_name }}"
+          else
+            # Get latest semver tag
+            TARGET=$(git tag --list 'v*.*.*' --sort=-version:refname | head -n1)
+          fi
+          echo "Pointing v1 -> $TARGET"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -f v1 "$TARGET"

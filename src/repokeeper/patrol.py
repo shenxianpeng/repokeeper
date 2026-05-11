@@ -1043,11 +1043,13 @@ def generate_health_summary(report: PatrolReport, profile: dict) -> str:
             )
 
     if pending:
-        lines.append("## ⏳ Waiting for Maintainer Approval")
+        lines.append("## 🔔 Items for Review")
         lines.append("")
         lines.append(
-            "RepoKeeper will not implement these candidates until a maintainer "
-            "adds `agent-todo` or comments `/repokeeper go`."
+            "The following were detected during this scan. "
+            "No action has been taken automatically. "
+            "To have RepoKeeper address an item, add the `agent-todo` label "
+            "or comment `/repokeeper go` on the relevant issue."
         )
         lines.append("")
         for item in pending[:20]:

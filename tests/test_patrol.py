@@ -879,7 +879,7 @@ def test_generate_health_summary_includes_sections():
     assert "Outdated Dependencies" in summary
     assert "CI Failures" in summary
     assert "Stale Issues" in summary
-    assert "Waiting for Maintainer Approval" in summary
+    assert "Items for Review" in summary
 
 
 def test_generate_health_summary_includes_warnings():

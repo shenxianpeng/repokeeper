@@ -65,7 +65,7 @@ commit_parsers = [
 ]
 filter_commits = false
 fail_on_unmatched_commit = false
-tag_pattern = "v[0-9].*"
+tag_pattern = "v[0-9]+.[0-9]+.[0-9]+.*"
 topo_order = false
 topo_order_commits = true
 sort_commits = "oldest"

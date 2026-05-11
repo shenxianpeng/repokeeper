@@ -5,9 +5,14 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: 'Tag to point v1 at (e.g. v1.2.3)'
-        required: false
+      tag:
+        description: 'which tag to update to'
+        default: 'v1'
+        required: true
+      ref:
+        description: 'which branch to update the tag on'
+        default: 'main'
+        required: true
 
 permissions:
   contents: write
@@ -15,26 +20,19 @@ permissions:
 jobs:
   move-v1:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: Move v1 tag to latest release
-        run: |
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
-            TARGET="${{ github.event.release.tag_name }}"
-          elif [ -n "${{ inputs.tag_name }}" ]; then
-            TARGET="${{ inputs.tag_name }}"
-          else
-            # Get latest semver tag
-            TARGET=$(git tag --list 'v*.*.*' --sort=-version:refname | head -n1)
-          fi
-          echo "Pointing v1 -> $TARGET"
-          git config user.name 'github-actions'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -f v1 "$TARGET"
-          git push -f origin v1
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      with:
+        persist-credentials: true # needed for `git push`
+        fetch-depth: 0
+        ref: ${{ inputs.ref }}
+    - name: Config git name and email
+      run: |
+        git config user.name 'github-actions'
+        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+    - name: Update rolling tag
+      run: |
+        # Get the major version from the latest tag
+        MAJOR_VERSION=`git tag --list --sort=-v:refname | head -n1 | cut -d. -f1`
+        git tag --force --annotate ${{ inputs.tag || '$MAJOR_VERSION' }} --message 'Retag ${{ inputs.tag || '$MAJOR_VERSION' }}'
+        git push origin ${{ inputs.tag || '$MAJOR_VERSION' }} --force

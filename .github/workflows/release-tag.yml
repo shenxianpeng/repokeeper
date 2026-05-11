@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag to point v1 at (e.g. v1.2.3)'
+        required: true
+        default: v1
 
 jobs:
   move-v1:
@@ -17,7 +22,8 @@ jobs:
 
       - name: Move v1 tag to latest release
         run: |
+          TARGET="${{ github.event.release.tag_name || inputs.tag_name }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f v1 "${{ github.event.release.tag_name }}"
+          git tag -f v1 "$TARGET"
           git push -f origin v1

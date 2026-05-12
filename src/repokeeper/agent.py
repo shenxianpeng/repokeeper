@@ -1151,9 +1151,15 @@ def run_fix_pr(
 
             if not changed_files_list:
                 logger.warning("Pi produced no file changes")
+                pi_tail = (pi_result.stdout[-1000:] if pi_result.stdout.strip()
+                           else "(no output)")
                 pr_obj.create_issue_comment(
                     "🤖 **RepoKeeper** (Pi) finished but produced no file changes.\n\n"
-                    "Please review the feedback or fix manually."
+                    "**Pi output (tail):**\n```\n" + pi_tail + "\n```\n\n"
+                    "**Possible causes:**\n"
+                    "- The feedback may be too vague or missing specific instructions.\n"
+                    "- Pi may not have found files to modify.\n\n"
+                    "Try providing more specific feedback or use \"/repokeeper review\" first."
                 )
                 return {"skip": True, "reason": "No file changes produced by Pi"}
 
@@ -1698,9 +1704,16 @@ def run_agent(
 
             if not changed_files_list:
                 logger.warning("Pi produced no file changes")
+                pi_tail = (pi_result.stdout[-1000:] if pi_result.stdout.strip()
+                           else "(no output)")
                 post_comment(issue_obj,
                     "🤖 **RepoKeeper** (Pi) finished but produced no file changes.\n\n"
-                    "Please check the issue description or implement manually.")
+                    "**Pi output (tail):**\n```\n" + pi_tail + "\n```\n\n"
+                    "**Possible causes:**\n"
+                    "- The issue may be too vague or missing specific instructions.\n"
+                    "- Pi may not have understood what files to modify.\n\n"
+                    "Try clarifying the issue with more detail, or use the native backend "
+                    "by setting `agent.backend: native` in `repokeeper.yml`.")
                 return {"skip": True, "reason": "No file changes produced by Pi", "pr_url": None}
 
             impl_usage = TokenUsage(model=model, total_tokens=0, cost_usd=0)

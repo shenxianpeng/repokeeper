@@ -16,8 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: ./patrol
+      - uses: ./
         with:
+          module: patrol
           repo: ${{ github.repository }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

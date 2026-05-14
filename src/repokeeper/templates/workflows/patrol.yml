@@ -14,8 +14,9 @@ jobs:
       contents: write
       actions: read
     steps:
-      - uses: shenxianpeng/repokeeper/patrol@v1
+      - uses: shenxianpeng/repokeeper@v1
         with:
+          module: patrol
           repo: ${{ github.repository }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

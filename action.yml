@@ -1,0 +1,170 @@
+name: 'RepoKeeper Maintainer Automation'
+author: 'Xianpeng Shen'
+description: 'Run RepoKeeper agent, review, monitor, patrol, and labeler modules from one action'
+branding:
+  icon: 'git-pull-request'
+  color: 'purple'
+inputs:
+  module:
+    description: 'RepoKeeper module to run: agent, review, describe, radar, monitor, patrol, or labeler'
+    required: false
+    default: 'agent'
+  repo:
+    description: 'GitHub repository as owner/name'
+    required: true
+  issue:
+    description: 'GitHub issue number for agent or labeler'
+    required: false
+    default: ''
+  pr:
+    description: 'GitHub PR number for agent fix mode, review, describe, or labeler'
+    required: false
+    default: ''
+  llm_api_key:
+    description: 'LLM API key'
+    required: true
+  llm_base_url:
+    description: 'OpenAI-compatible API base URL'
+    required: false
+    default: 'https://api.deepseek.com'
+  github_token:
+    description: 'GitHub token with contents, issues, and pull request write access'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate module input
+      shell: bash
+      env:
+        MODULE: ${{ inputs.module }}
+        ISSUE_NUMBER: ${{ inputs.issue }}
+        PR_NUMBER: ${{ inputs.pr }}
+        LLM_API_KEY: ${{ inputs.llm_api_key }}
+      run: |
+        case "$MODULE" in
+          agent|review|describe|radar|monitor|patrol|labeler) ;;
+          *)
+            echo "::error::Unsupported RepoKeeper module '$MODULE'. Use: agent, review, describe, radar, monitor, patrol, or labeler."
+            exit 1
+            ;;
+        esac
+
+        if [ -z "$LLM_API_KEY" ]; then
+          echo "::error::llm_api_key is required."
+          exit 1
+        fi
+
+        if [ "$MODULE" = "agent" ] && [ -z "$ISSUE_NUMBER" ]; then
+          echo "::error::module=agent requires the 'issue' input."
+          exit 1
+        fi
+
+        if { [ "$MODULE" = "review" ] || [ "$MODULE" = "describe" ]; } && [ -z "$PR_NUMBER" ]; then
+          echo "::error::module=$MODULE requires the 'pr' input."
+          exit 1
+        fi
+
+        if [ "$MODULE" = "labeler" ] && [ -z "$ISSUE_NUMBER" ] && [ -z "$PR_NUMBER" ]; then
+          echo "::error::module=labeler requires at least one of 'issue' or 'pr' inputs."
+          exit 1
+        fi
+
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+
+    - uses: actions/setup-node@v6
+      if: ${{ inputs.module == 'agent' }}
+      with:
+        node-version: '20'
+
+    - name: Install Pi
+      if: ${{ inputs.module == 'agent' }}
+      shell: bash
+      run: npm install -g @earendil-works/pi-coding-agent
+
+    - name: Install RepoKeeper
+      shell: bash
+      run: pip install repokeeper
+
+    - name: Run Implementation Agent
+      if: ${{ inputs.module == 'agent' }}
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: '1'
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+        PR_NUMBER: ${{ inputs.pr }}
+      run: repokeeper agent --repo "${{ inputs.repo }}" --issue "${{ inputs.issue }}"
+
+    - name: Run Code Review Agent
+      if: ${{ inputs.module == 'review' }}
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: '1'
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+        PR_NUMBER: ${{ inputs.pr }}
+      run: repokeeper review --repo "${{ inputs.repo }}" --pr "${{ inputs.pr }}"
+
+    - name: Generate PR Description
+      if: ${{ inputs.module == 'describe' }}
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: '1'
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+        PR_NUMBER: ${{ inputs.pr }}
+      run: repokeeper describe --repo "${{ inputs.repo }}" --pr "${{ inputs.pr }}"
+
+    - name: Run Community Radar
+      if: ${{ inputs.module == 'radar' || inputs.module == 'monitor' }}
+      shell: bash
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+      run: repokeeper radar --repo "${{ inputs.repo }}" --summary | tee "$GITHUB_STEP_SUMMARY"
+
+    - name: Run Daily Patrol
+      if: ${{ inputs.module == 'patrol' }}
+      shell: bash
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+      run: repokeeper patrol --repo "${{ inputs.repo }}" --summary | tee "$GITHUB_STEP_SUMMARY"
+
+    - name: Run Auto-Labeler
+      if: ${{ inputs.module == 'labeler' }}
+      shell: bash
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        ISSUE_NUMBER: ${{ inputs.issue }}
+        PR_NUMBER: ${{ inputs.pr }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+      run: |
+        ISSUE_FLAG=""
+        PR_FLAG=""
+        if [ -n "$ISSUE_NUMBER" ]; then
+          ISSUE_FLAG="--issue $ISSUE_NUMBER"
+        fi
+        if [ -n "$PR_NUMBER" ]; then
+          PR_FLAG="--pr $PR_NUMBER"
+        fi
+        repokeeper labeler --repo "${{ inputs.repo }}" $ISSUE_FLAG $PR_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"

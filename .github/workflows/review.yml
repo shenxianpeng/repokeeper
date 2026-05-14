@@ -40,8 +40,9 @@ jobs:
             echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: ./review
+      - uses: ./
         with:
+          module: review
           repo: ${{ github.repository }}
           pr: ${{ steps.pr.outputs.number }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}

@@ -39,8 +39,9 @@ jobs:
             echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: shenxianpeng/repokeeper/review@v1
+      - uses: shenxianpeng/repokeeper@v1
         with:
+          module: review
           repo: ${{ github.repository }}
           pr: ${{ steps.pr.outputs.number }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}

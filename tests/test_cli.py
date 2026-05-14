@@ -272,6 +272,125 @@ def test_doctor_reports_incomplete_workflow(tmp_path, monkeypatch, capsys):
     assert "pull request write permission" in output
 
 
+def test_workflow_required_settings_accepts_root_agent_action(tmp_path):
+    workflow = tmp_path / "repokeeper.yml"
+    workflow.write_text(
+        """
+on:
+  issue_comment:
+  issues:
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+jobs:
+  repokeeper:
+    steps:
+      - uses: shenxianpeng/repokeeper@v1
+        with:
+          module: agent
+""",
+        encoding="utf-8",
+    )
+
+    assert cli._workflow_has_required_settings(workflow) == []
+
+
+def test_workflow_required_settings_accepts_local_root_agent_action(tmp_path):
+    workflow = tmp_path / "repokeeper.yml"
+    workflow.write_text(
+        """
+on:
+  issue_comment:
+  issues:
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+jobs:
+  repokeeper:
+    steps:
+      - uses: ./
+        with:
+          module: agent
+""",
+        encoding="utf-8",
+    )
+
+    assert cli._workflow_has_required_settings(workflow) == []
+
+
+def test_workflow_required_settings_ignores_comment_only_action_reference(tmp_path):
+    workflow = tmp_path / "repokeeper.yml"
+    workflow.write_text(
+        """
+# Example: uses: shenxianpeng/repokeeper@v1
+on:
+  issue_comment:
+  issues:
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+jobs:
+  repokeeper:
+    steps:
+      - run: echo "missing action"
+""",
+        encoding="utf-8",
+    )
+
+    assert "agent action" in cli._workflow_has_required_settings(workflow)
+
+
+def test_workflow_required_settings_requires_agent_module(tmp_path):
+    workflow = tmp_path / "repokeeper.yml"
+    workflow.write_text(
+        """
+on:
+  issue_comment:
+  issues:
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+jobs:
+  repokeeper:
+    steps:
+      - uses: shenxianpeng/repokeeper@v1
+        with:
+          module: review
+""",
+        encoding="utf-8",
+    )
+
+    assert "agent action" in cli._workflow_has_required_settings(workflow)
+
+
+def test_workflow_uses_agent_action_rejects_invalid_yaml():
+    assert cli._workflow_uses_agent_action("jobs: [") is False
+
+
+def test_workflow_uses_agent_action_rejects_non_mapping_documents():
+    assert cli._workflow_uses_agent_action("- just-a-list") is False
+
+
+def test_workflow_uses_agent_action_skips_malformed_jobs():
+    workflow = """
+jobs:
+  one: not-a-job-map
+  two:
+    steps: not-a-step-list
+  three:
+    steps:
+      - run: echo ok
+      - uses: 123
+      - uses: actions/checkout@v6
+"""
+
+    assert cli._workflow_uses_agent_action(workflow) is False
+
+
 def test_cmd_radar_missing_token(tmp_path, monkeypatch):
     """radar fails with clear message when GITHUB_TOKEN missing."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)

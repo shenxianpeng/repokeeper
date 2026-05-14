@@ -13,8 +13,9 @@ jobs:
       discussions: read
       contents: read
     steps:
-      - uses: shenxianpeng/repokeeper/radar@v1
+      - uses: shenxianpeng/repokeeper@v1
         with:
+          module: radar
           repo: ${{ github.repository }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

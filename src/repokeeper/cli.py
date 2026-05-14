@@ -424,9 +424,48 @@ def _workflow_has_required_settings(workflow_path: Path) -> list[str]:
         "contents write permission": "contents: write",
         "issues write permission": "issues: write",
         "pull request write permission": "pull-requests: write",
-        "agent action": "repokeeper/agent@",
     }
-    return [label for label, snippet in required_snippets.items() if snippet not in text]
+    issues = [label for label, snippet in required_snippets.items() if snippet not in text]
+    if not _workflow_uses_agent_action(text):
+        issues.append("agent action")
+    return issues
+
+
+def _workflow_uses_agent_action(text: str) -> bool:
+    """Return whether a workflow invokes the root RepoKeeper action as agent."""
+    import yaml
+
+    try:
+        workflow = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return False
+    if not isinstance(workflow, dict):
+        return False
+
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, dict):
+        return False
+
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps")
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            uses = step.get("uses")
+            if not isinstance(uses, str):
+                continue
+            uses = uses.strip()
+            if uses != "./" and not uses.startswith("shenxianpeng/repokeeper@"):
+                continue
+            with_inputs = step.get("with")
+            if isinstance(with_inputs, dict) and with_inputs.get("module") == "agent":
+                return True
+
+    return False
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:

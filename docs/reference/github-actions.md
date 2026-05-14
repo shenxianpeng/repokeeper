@@ -1,19 +1,21 @@
 # GitHub Actions
 
-RepoKeeper ships as **composite actions** — one per module — hosted in this
-repository at `shenxianpeng/repokeeper/<module>@v1`. Each composite action
-bundles checkout, Python setup, `pip install repokeeper`, and the module
-entrypoint into a single step.
+RepoKeeper ships as one **composite action**. The root Marketplace action
+dispatches to all modules through a `module` input. It bundles checkout, Python
+setup, `pip install repokeeper`, and the selected module entrypoint into a
+single step.
 
 ## Composite Actions
 
-| Action | Module |
+| `module` | Module |
 |--------|--------|
-| `shenxianpeng/repokeeper/agent@v1` | Implementation Agent |
-| `shenxianpeng/repokeeper/radar@v1` | Community Radar |
-| `shenxianpeng/repokeeper/patrol@v1` | Daily Patrol |
-| `shenxianpeng/repokeeper/labeler@v1` | Auto-Labeler |
-| `shenxianpeng/repokeeper/review@v1` | Code Review Agent |
+| `agent` | Implementation Agent |
+| `review` | Code Review Agent |
+| `describe` | PR description generator |
+| `radar` | Community Radar |
+| `monitor` | Alias for Community Radar |
+| `patrol` | Daily Patrol |
+| `labeler` | Auto-Labeler |
 
 Each action requires a workflow file in `.github/workflows/` that defines the
 trigger, permissions, and job that calls the action.
@@ -66,8 +68,9 @@ A single step calls the composite action:
 
 ```yaml
 steps:
-  - uses: shenxianpeng/repokeeper/agent@v1
+  - uses: shenxianpeng/repokeeper@v1
     with:
+      module: agent
       repo: ${{ github.repository }}
       issue: ${{ github.event.issue.number }}
       llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -77,6 +80,38 @@ steps:
 
 The composite action bundles checkout (fetch-depth: 0), Python 3.10+ setup,
 `pip install repokeeper`, and `repokeeper agent` internally.
+
+## Module Examples
+
+Use the same root action for every RepoKeeper module:
+
+```yaml
+- uses: shenxianpeng/repokeeper@v1
+  with:
+    module: review
+    repo: ${{ github.repository }}
+    pr: ${{ github.event.pull_request.number }}
+    llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+```yaml
+- uses: shenxianpeng/repokeeper@v1
+  with:
+    module: monitor
+    repo: ${{ github.repository }}
+    llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+```yaml
+- uses: shenxianpeng/repokeeper@v1
+  with:
+    module: patrol
+    repo: ${{ github.repository }}
+    llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
 
 ### Required Secrets
 
@@ -118,8 +153,9 @@ permissions:
 
 ```yaml
 steps:
-  - uses: shenxianpeng/repokeeper/radar@v1
+  - uses: shenxianpeng/repokeeper@v1
     with:
+      module: radar
       repo: ${{ github.repository }}
       llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
       github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -164,8 +200,9 @@ permissions:
 
 ```yaml
 steps:
-  - uses: shenxianpeng/repokeeper/patrol@v1
+  - uses: shenxianpeng/repokeeper@v1
     with:
+      module: patrol
       repo: ${{ github.repository }}
       llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
       github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -190,7 +227,7 @@ repokeeper init --all-workflows
 
 ### Option 2: Create workflows manually
 
-Create workflow files in `.github/workflows/` that reference the composite actions.
+Create workflow files in `.github/workflows/` that reference the root composite action.
 See the [templates](https://github.com/shenxianpeng/repokeeper/tree/main/src/repokeeper/templates/workflows)
 for copyable examples.
 

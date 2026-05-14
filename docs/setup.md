@@ -29,8 +29,9 @@ your-repo/
 └── repokeeper.yml            # Your maintainer profile
 ```
 
-All workflows use the `shenxianpeng/repokeeper/<module>@v1` composite actions,
-so they stay lean: checkout, Python, and pip install are bundled inside each action.
+All workflows use the `shenxianpeng/repokeeper@v1` composite action with a
+`module` input, so they stay lean: checkout, Python, and pip install are bundled
+inside the action.
 
 To also create Community Radar, Daily Patrol, Labeler, and Review workflows, run
 `repokeeper init . --all-workflows --force`.

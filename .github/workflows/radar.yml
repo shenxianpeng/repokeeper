@@ -15,8 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: ./radar
+      - uses: ./
         with:
+          module: radar
           repo: ${{ github.repository }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

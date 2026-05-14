@@ -40,8 +40,9 @@ jobs:
             echo "pr=" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: ./labeler
+      - uses: ./
         with:
+          module: labeler
           repo: ${{ github.repository }}
           issue: ${{ steps.target.outputs.issue }}
           pr: ${{ steps.target.outputs.pr }}

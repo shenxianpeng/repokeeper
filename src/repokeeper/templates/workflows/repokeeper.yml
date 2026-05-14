@@ -49,8 +49,9 @@ jobs:
             echo "pr=" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: shenxianpeng/repokeeper/agent@v1
+      - uses: shenxianpeng/repokeeper@v1
         with:
+          module: agent
           repo: ${{ github.repository }}
           issue: ${{ steps.ctx.outputs.issue }}
           pr: ${{ steps.ctx.outputs.pr }}

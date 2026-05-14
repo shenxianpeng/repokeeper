@@ -50,7 +50,7 @@ diagnosing CI, monitoring your community, and iterating on fixes?
 | **Interface** | GitHub.com, IDE | GitHub App, web | GitHub Action, CLI | GitHub Actions, CLI, labels, comments |
 | **OSS cost** | Subscription required | Free for public repos | Free for public repos | Free (your own LLM key) |
 | **Setup time** | Enable in settings | Install GitHub App | Copy Action + API key | Copy Action + API key |
-| **Self-hosted** | No | No | Yes | Yes — 5 composite actions |
+| **Self-hosted** | No | No | Yes | Yes — one composite action, 7 modules |
 
 ## What It Does
 
@@ -162,8 +162,9 @@ jobs:
             echo "pr=" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: shenxianpeng/repokeeper/agent@v1
+      - uses: shenxianpeng/repokeeper@v1
         with:
+          module: agent
           repo: ${{ github.repository }}
           issue: ${{ steps.ctx.outputs.issue }}
           pr: ${{ steps.ctx.outputs.pr }}
@@ -184,7 +185,7 @@ repokeeper doctor --repo owner/repo
 environment, LLM key, and repository slug. Fix anything marked `missing`, then
 push the workflow.
 
-> Want Radar, Patrol, Labeler, and Review too? Add [`radar`](radar/action.yml), [`patrol`](patrol/action.yml), [`labeler`](labeler/action.yml), and [`review`](review/action.yml) composite actions to separate workflow files in `.github/workflows/`.
+> Want Radar, Patrol, Labeler, and Review too? Use the same `shenxianpeng/repokeeper@v1` action with `module: radar`, `module: patrol`, `module: labeler`, or `module: review` in separate workflow files.
 
 ### 🖥️ CLI
 
@@ -199,7 +200,7 @@ repokeeper doctor --repo owner/repo
 
 Paste this into any AI coding agent (Copilot Chat, Claude Code, Cursor, Windsurf, pi, etc.):
 
-> Add RepoKeeper to this repository. Create `.github/workflows/repokeeper.yml` that uses the `shenxianpeng/repokeeper/agent@v1` composite action — trigger on issue comments (`/repokeeper go`) and labels (`agent-todo`). Pass `DEEPSEEK_API_KEY` as the `llm_api_key` input. Then tell me to add a `DEEPSEEK_API_KEY` secret in GitHub Actions settings.
+> Add RepoKeeper to this repository. Create `.github/workflows/repokeeper.yml` that uses the `shenxianpeng/repokeeper@v1` composite action with `module: agent` — trigger on issue comments (`/repokeeper go`) and labels (`agent-todo`). Pass `DEEPSEEK_API_KEY` as the `llm_api_key` input. Then tell me to add a `DEEPSEEK_API_KEY` secret in GitHub Actions settings.
 
 ### Trigger the agent
 
@@ -237,8 +238,10 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | Guide | |
 |---|---|
 | [Quick Start](https://shenxianpeng.github.io/repokeeper/quick-start/) | 5-minute setup |
+| [Release Consistency](https://shenxianpeng.github.io/repokeeper/release/) | Keep GitHub release, PyPI, docs, and action tags aligned |
+| [GitHub Marketplace](https://shenxianpeng.github.io/repokeeper/marketplace/) | Listing copy and demo script |
 | [Security](https://shenxianpeng.github.io/repokeeper/security/) | Permissions, tokens, and automation boundaries |
-| [Dogfood Cases](https://shenxianpeng.github.io/repokeeper/dogfood/) | Public proof template for real RepoKeeper-generated PRs |
+| [Dogfood Cases](https://shenxianpeng.github.io/repokeeper/dogfood/) | Public proof and learning log for RepoKeeper runs |
 | [Community Radar](https://shenxianpeng.github.io/repokeeper/module-1-radar/) | Monitor your community |
 | [Daily Patrol](https://shenxianpeng.github.io/repokeeper/module-2-patrol/) | Automated health checks |
 | [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |

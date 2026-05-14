@@ -424,9 +424,11 @@ def _workflow_has_required_settings(workflow_path: Path) -> list[str]:
         "contents write permission": "contents: write",
         "issues write permission": "issues: write",
         "pull request write permission": "pull-requests: write",
-        "agent action": "repokeeper/agent@",
     }
-    return [label for label, snippet in required_snippets.items() if snippet not in text]
+    issues = [label for label, snippet in required_snippets.items() if snippet not in text]
+    if "repokeeper@" not in text and "uses: ./" not in text:
+        issues.append("agent action")
+    return issues
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:

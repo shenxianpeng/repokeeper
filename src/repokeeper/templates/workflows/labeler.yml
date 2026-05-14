@@ -17,8 +17,9 @@ jobs:
       issues: write
       contents: read
     steps:
-      - uses: shenxianpeng/repokeeper/labeler@v1
+      - uses: shenxianpeng/repokeeper@v1
         with:
+          module: labeler
           repo: ${{ github.repository }}
           issue: ${{ github.event.inputs.issue_number || github.event.issue.number || '' }}
           llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}

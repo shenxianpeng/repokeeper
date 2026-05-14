@@ -49,6 +49,8 @@ nav:
   - Get Started:
     - Quick Start: quick-start.md
     - Setup: setup.md
+    - Release Consistency: release.md
+    - GitHub Marketplace: marketplace.md
     - Security: security.md
     - Dogfood Cases: dogfood.md
   - Modules:

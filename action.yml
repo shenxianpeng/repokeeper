@@ -22,7 +22,7 @@ inputs:
     default: ''
   llm_api_key:
     description: 'LLM API key'
-    required: false
+    required: true
   llm_base_url:
     description: 'OpenAI-compatible API base URL'
     required: false
@@ -40,6 +40,7 @@ runs:
         MODULE: ${{ inputs.module }}
         ISSUE_NUMBER: ${{ inputs.issue }}
         PR_NUMBER: ${{ inputs.pr }}
+        LLM_API_KEY: ${{ inputs.llm_api_key }}
       run: |
         case "$MODULE" in
           agent|review|describe|radar|monitor|patrol|labeler) ;;
@@ -49,6 +50,11 @@ runs:
             ;;
         esac
 
+        if [ -z "$LLM_API_KEY" ]; then
+          echo "::error::llm_api_key is required."
+          exit 1
+        fi
+
         if [ "$MODULE" = "agent" ] && [ -z "$ISSUE_NUMBER" ]; then
           echo "::error::module=agent requires the 'issue' input."
           exit 1
@@ -56,6 +62,11 @@ runs:
 
         if { [ "$MODULE" = "review" ] || [ "$MODULE" = "describe" ]; } && [ -z "$PR_NUMBER" ]; then
           echo "::error::module=$MODULE requires the 'pr' input."
+          exit 1
+        fi
+
+        if [ "$MODULE" = "labeler" ] && [ -z "$ISSUE_NUMBER" ] && [ -z "$PR_NUMBER" ]; then
+          echo "::error::module=labeler requires at least one of 'issue' or 'pr' inputs."
           exit 1
         fi
 
@@ -102,6 +113,7 @@ runs:
         REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
+        PR_NUMBER: ${{ inputs.pr }}
       run: repokeeper review --repo "${{ inputs.repo }}" --pr "${{ inputs.pr }}"
 
     - name: Generate PR Description
@@ -113,6 +125,7 @@ runs:
         REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
+        PR_NUMBER: ${{ inputs.pr }}
       run: repokeeper describe --repo "${{ inputs.repo }}" --pr "${{ inputs.pr }}"
 
     - name: Run Community Radar

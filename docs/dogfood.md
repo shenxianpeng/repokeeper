@@ -1,15 +1,20 @@
 # Dogfood Cases
 
 RepoKeeper needs public proof, not synthetic examples. This page tracks real
-runs against this repository, including successful generated PRs and failed
-runs that exposed product gaps.
+runs against this repository. Merged proof cases are separated from learning
+cases so the page does not overstate unmerged or failed runs.
 
-## Public Run Log
+## Merged Proof Cases
+
+| Case | Trigger | Output | Result | Lesson |
+|---|---|---|---|---|
+| [Code quality repair](#code-quality-repair) | RepoKeeper branch `repokeeper/ci-fix-1` | PR #13 | Merged, CI passed | Larger autonomous repairs need strong verification evidence |
+
+## Learning Log
 
 | Case | Trigger | Output | Result | Lesson |
 |---|---|---|---|---|
 | [Architecture diagram](#architecture-diagram) | Issue #26 + `agent-todo` | PR #27 | Generated, closed unmerged | PR body proof format works; docs-only changes need clear merge workflow |
-| [Code quality repair](#code-quality-repair) | RepoKeeper branch `repokeeper/ci-fix-1` | PR #13 | Merged, CI passed | Larger autonomous repairs need strong verification evidence |
 | [Labeler exact-edit miss](#labeler-exact-edit-miss) | Issue #28 + `agent-todo` | Error comment | Failed | Exact edits must fall back to patch or re-select files |
 | [Workflow guardrail](#workflow-guardrail) | Issue #32 + `agent-todo` | Issue #33 | Correctly refused | Blocking workflow edits protects repository automation |
 | [Coverage scope boundary](#coverage-scope-boundary) | Issue #35 + `agent-todo` | Issue #36 | Failed with no changes | Broad coverage goals need task decomposition before agent execution |

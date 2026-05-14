@@ -23,7 +23,8 @@ Before publishing a release:
 5. Confirm `CHANGELOG.md` includes the release notes.
 6. Publish the GitHub release.
 7. Confirm the release workflow uploaded the matching PyPI version.
-8. Move the floating major tag, for example `v1`, to the same commit.
+8. Confirm the `release-tag.yml` workflow moved the floating major tag, for
+   example `v1`, to the same commit.
 9. Run the checks in the table above and update this page if anything changed.
 
 Do not announce a feature in README or docs until the PyPI package and the

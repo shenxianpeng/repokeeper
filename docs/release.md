@@ -38,5 +38,5 @@ RepoKeeper module:
 ```yaml
 - uses: shenxianpeng/repokeeper@v1
   with:
-    module: agent   # agent | review | describe | radar | monitor | patrol | labeler
+    module: agent   # agent | review | describe | radar | monitor | patrol | labeler | release
 ```

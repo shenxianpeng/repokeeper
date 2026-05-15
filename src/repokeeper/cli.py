@@ -20,10 +20,11 @@ from .labeler import generate_labeler_summary, run_labeler
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
 from .radar import generate_radar_summary, run_radar
+from .release import generate_release_summary, run_release
 from .review import run_describe, run_review
 
 AGENT_WORKFLOW = "repokeeper.yml"
-OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml", "review.yml", "labeler.yml")
+OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml", "review.yml", "labeler.yml", "release.yml")
 ALL_WORKFLOWS = (AGENT_WORKFLOW, *OPTIONAL_WORKFLOWS)
 
 
@@ -268,6 +269,30 @@ def cmd_describe(args: argparse.Namespace) -> int:
         print(f"PR description updated{extra}")
     else:
         print(f"Description not posted: {result.get('error', 'unknown')}")
+    return 0
+
+
+def cmd_release(args: argparse.Namespace) -> int:
+    profile = load_profile(args.profile)
+    gh = _make_github_client(args.github_token)
+    llm = _make_llm_client(args.llm_api_key, args.llm_base_url)
+    result = run_release(
+        gh,
+        llm,
+        args.repo,
+        profile=profile,
+        base_ref=args.base,
+        target_ref=args.target,
+        tag_name=args.tag,
+        dry_run=args.dry_run,
+    )
+    if args.summary or args.dry_run:
+        print(generate_release_summary(result))
+    elif result.action == "disabled":
+        print("Release drafting is disabled.")
+    else:
+        suffix = f": {result.html_url}" if result.html_url else ""
+        print(f"Draft release {result.action} for {result.tag_name}{suffix}")
     return 0
 
 
@@ -674,6 +699,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_remote(describe)
     describe.add_argument("--pr", required=True, type=int, help="GitHub pull request number")
     describe.set_defaults(func=cmd_describe)
+
+    release = subparsers.add_parser("release", help="Draft GitHub release notes with AI")
+    add_common_remote(release)
+    release.add_argument("--base", default=None, help="Base tag/ref (default: latest published release)")
+    release.add_argument("--target", default=None, help="Target branch/ref (default: repository default branch)")
+    release.add_argument("--tag", default=None, help="Draft release tag (default: next patch tag)")
+    release.add_argument("--dry-run", action="store_true", help="Print notes without creating a draft release")
+    release.add_argument("--summary", action="store_true", help="Print markdown summary")
+    release.set_defaults(func=cmd_release)
 
     labeler = subparsers.add_parser("labeler", help="Auto-label issues and PRs with AI")
     add_common_remote(labeler)

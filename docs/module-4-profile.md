@@ -309,6 +309,34 @@ review:
 | `describe_on_open` | bool | `false` | Auto-generate PR description on `pull_request.opened` |
 | `incremental` | bool | `true` | Re-review when new commits are pushed (`pull_request.synchronize`) |
 
+### `release` — Release Note Settings
+
+```yaml
+release:
+  enabled: true
+  model: null
+  temperature: 0.1
+  audience: users and maintainers
+  categories:
+    - Breaking Changes
+    - Features
+    - Fixes
+    - Documentation
+    - Maintenance
+  include_prereleases: false
+  prerelease: false
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable draft release note generation |
+| `model` | string/null | `null` | Per-module model (null = inherit `agent.model`) |
+| `temperature` | float | `0.1` | LLM temperature |
+| `audience` | string | `users and maintainers` | Target audience for notes |
+| `categories` | list | see example | Preferred release note section order |
+| `include_prereleases` | bool | `false` | Consider prereleases when finding the previous release |
+| `prerelease` | bool | `false` | Mark the GitHub draft release as a prerelease |
+
 ## Environment Variable Overrides
 
 Any profile field can be overridden with an environment variable using the
@@ -321,6 +349,7 @@ Any profile field can be overridden with an environment variable using the
 | `notifications.email` | `RKP_NOTIFICATIONS_EMAIL=me@example.com` |
 | `radar.confidence_threshold` | `RKP_RADAR_CONFIDENCE_THRESHOLD=0.8` |
 | `patrol.stale_days` | `RKP_PATROL_STALE_DAYS=60` |
+| `release.audience` | `RKP_RELEASE_AUDIENCE=maintainers` |
 
 Values are automatically type-coerced:
 - `"true"`, `"yes"`, `"1"` → `True`
@@ -457,4 +486,12 @@ review:
   model: null
   describe_on_open: false
   incremental: true
+
+release:
+  enabled: true
+  model: null
+  temperature: 0.1
+  audience: users and maintainers
+  include_prereleases: false
+  prerelease: false
 ```

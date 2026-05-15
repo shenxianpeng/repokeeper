@@ -115,6 +115,22 @@ DEFAULT_PROFILE: dict[str, Any] = {
         "describe_on_open": False,    # auto-generate PR description on pull_request.opened
         "incremental": True,          # re-review on new commits (pull_request.synchronize)
     },
+    # ── Release notes ──
+    "release": {
+        "enabled": True,
+        "model": None,                # per-module model (None = use agent.model)
+        "temperature": 0.1,
+        "audience": "users and maintainers",
+        "categories": [
+            "Breaking Changes",
+            "Features",
+            "Fixes",
+            "Documentation",
+            "Maintenance",
+        ],
+        "include_prereleases": False,
+        "prerelease": False,
+    },
 }
 
 
@@ -332,6 +348,21 @@ maintainer: your-github-username
 #   describe_on_open: false   # auto-generate PR description when a PR is opened
 #   incremental: true         # re-review when new commits are pushed to the PR
 #
+# ── Release Notes ──
+# release:
+#   enabled: true
+#   model: null
+#   temperature: 0.1
+#   audience: users and maintainers
+#   categories:
+#     - Breaking Changes
+#     - Features
+#     - Fixes
+#     - Documentation
+#     - Maintenance
+#   include_prereleases: false
+#   prerelease: false
+#
 # ─────────────────────────────────────
 # Tip: Place this file in the root of each repo.
 # Missing keys inherit from ~/.repokeeper/global.yml or built-in defaults.
@@ -365,7 +396,7 @@ def validate_profile(profile: dict) -> list[str]:
 
     # Validate per-module model overrides (fall back to agent.model)
     known_models = {"deepseek-chat", "deepseek-reasoner", "gpt-4o", "gpt-4o-mini"}
-    for section in ("agent", "labeler", "radar", "patrol", "review"):
+    for section in ("agent", "labeler", "radar", "patrol", "review", "release"):
         model = profile.get(section, {}).get("model")
         if model is not None and not isinstance(model, str):
             issues.append(f"{section}.model must be a string or null")
@@ -400,5 +431,9 @@ def validate_profile(profile: dict) -> list[str]:
     backend = profile.get("agent", {}).get("backend", "native")
     if backend not in {"native", "pi"}:
         issues.append("agent.backend must be one of {'native', 'pi'}")
+
+    release_categories = profile.get("release", {}).get("categories", [])
+    if release_categories is not None and not isinstance(release_categories, list):
+        issues.append("release.categories must be a list")
 
     return issues

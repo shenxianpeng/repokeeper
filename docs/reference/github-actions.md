@@ -16,6 +16,7 @@ single step.
 | `monitor` | Alias for Community Radar |
 | `patrol` | Daily Patrol |
 | `labeler` | Auto-Labeler |
+| `release` | Release note drafter |
 
 Each action requires a workflow file in `.github/workflows/` that defines the
 trigger, permissions, and job that calls the action.
@@ -108,6 +109,15 @@ Use the same root action for every RepoKeeper module:
 - uses: shenxianpeng/repokeeper@v1
   with:
     module: patrol
+    repo: ${{ github.repository }}
+    llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+```yaml
+- uses: shenxianpeng/repokeeper@v1
+  with:
+    module: release
     repo: ${{ github.repository }}
     llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
     github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -262,6 +272,7 @@ RepoKeeper's API usage is minimal:
 - **Radar:** ~50 API calls per scan (issue listing)
 - **Patrol:** ~100 API calls per scan (workflows, issues, PR creation)
 - **Agent:** ~10 API calls per run (issue fetch, comment, PR creation)
+- **Release:** ~20 API calls per run plus merged PR search
 
 ### LLM API
 
@@ -270,5 +281,6 @@ DeepSeek API limits vary by plan. Key usage points:
 - **Radar:** 1 LLM call per detected keyword match (classification)
 - **Patrol:** 1 LLM call per CI failure + 1 per stale issue
 - **Agent:** 1 LLM call per triggered implementation
+- **Release:** 1 LLM call per draft release
 
 Set `radar.keywords` judiciously to control LLM usage.

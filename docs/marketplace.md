@@ -2,7 +2,7 @@
 
 RepoKeeper's Marketplace listing should be a unified GitHub maintainer
 automation action. The default module is the Implementation Agent, but the same
-root action can also run review, PR description, radar, patrol, and labeler
+root action can also run review, PR description, radar, patrol, labeler, and release
 workflows.
 
 ## Listing Copy
@@ -14,9 +14,10 @@ workflows.
 **Description:**
 
 RepoKeeper is a GitHub-native maintainer automation toolkit. Use one action with
-`module: agent`, `review`, `describe`, `radar`, `monitor`, `patrol`, or `labeler` to turn
+`module: agent`, `review`, `describe`, `radar`, `monitor`, `patrol`, `labeler`, or `release` to turn
 issues into pull requests, review PRs, generate PR descriptions, monitor
-community signals, run daily maintenance patrols, and classify issues or PRs.
+community signals, run daily maintenance patrols, classify issues or PRs, and
+draft release notes.
 The default agent module reads approved issues, collects code context, asks the
 configured model for a minimal implementation, verifies the change, pushes a
 branch, and opens a pull request for human review.

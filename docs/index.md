@@ -61,6 +61,7 @@ hide:
         <li>Conversational PR fix mode — comment on a PR, agent fixes it</li>
         <li>Inline code review with severity indicators on specific lines</li>
         <li>Auto-labeler for issues and PRs (15 categories, diff-aware)</li>
+        <li>Draft release notes from merged PRs and direct commits</li>
         <li>Profile-driven code style, skip keywords, and PR guardrails</li>
         <li>Pre-PR verification through discovered or configured commands</li>
         <li>Community radar (issues + discussions) and daily patrol reports</li>

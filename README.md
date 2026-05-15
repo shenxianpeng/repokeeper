@@ -39,6 +39,7 @@ diagnosing CI, monitoring your community, and iterating on fixes?
 | **Conversational PR fix** | No | No | No | Yes — push to same branch |
 | **Code review** | Yes — PR only | Yes — line-level | Yes — /review | Yes — inline + severity |
 | **PR description generation** | No | Yes | Yes — /describe | Yes — /describe |
+| **Draft release notes** | No | No | No | Yes — PRs + direct commits |
 | **Auto-labeling** | No | Yes | Yes | Yes — 15 categories, diff-aware |
 | **Dependency scanning** | No | No | No | Yes — 8 ecosystems |
 | **CI diagnosis + fix** | No | No | No | Yes — auto-repair PRs |
@@ -59,6 +60,7 @@ diagnosing CI, monitoring your community, and iterating on fixes?
 - **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. Supports **two backends**: native (single LLM call, ~$0.001) and **Pi** (autonomous agent loop, reads files, runs tests, self-corrects). **PR fix mode**: comment `/repokeeper go` on a PR with feedback → agent reads the conversation → pushes fixes to the same branch.
 - **📝 Code Review Agent** — Reads PR diffs → checks against your profile → posts **inline line-level comments** with severity indicators and suggestion blocks. Incremental re-review on new commits. Auto-generates PR descriptions from diffs.
 - **🏷️ Auto-Labeler** — AI classifies new issues and PRs, picks labels from your repo's existing set (matching naming conventions), and creates new labels only when needed — with consistent style and descriptions. Diff-aware PR classification.
+- **Release Notes** — Drafts GitHub release notes from merged PRs, direct commits, labels, and changed files. Creates or updates draft releases only; publishing remains manual.
 - **👤 Maintainer Profile** — One YAML file. Code style, tone, PR standards, tech stack preferences, skip keywords, verification commands. *Or skip it — defaults work.*
 
 ## Architecture
@@ -82,6 +84,7 @@ flowchart TD
         agent["🤖 Agent<br/>native · Pi backend"]
         labeler["🏷️ Labeler<br/>auto-classify"]
         review["📝 Review<br/>inline comments"]
+        release["Release<br/>draft notes"]
     end
 
     profile["📋 repokeeper.yml"]:::config
@@ -185,7 +188,7 @@ repokeeper doctor --repo owner/repo
 environment, LLM key, and repository slug. Fix anything marked `missing`, then
 push the workflow.
 
-> Want Radar, Patrol, Labeler, and Review too? Use the same `shenxianpeng/repokeeper@v1` action with `module: radar`, `module: patrol`, `module: labeler`, or `module: review` in separate workflow files.
+> Want Radar, Patrol, Labeler, Review, and Release Notes too? Use the same `shenxianpeng/repokeeper@v1` action with `module: radar`, `module: patrol`, `module: labeler`, `module: review`, or `module: release` in separate workflow files.
 
 ### 🖥️ CLI
 
@@ -227,6 +230,7 @@ repokeeper labeler --repo owner/repo --issue 42
 repokeeper labeler --repo owner/repo --pr 42
 repokeeper review --repo owner/repo --pr 42
 repokeeper describe --repo owner/repo --pr 42
+repokeeper release --repo owner/repo --dry-run
 ```
 
 ---
@@ -248,6 +252,7 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | [Auto-Labeler](https://shenxianpeng.github.io/repokeeper/module-5-labeler/) | AI-powered issue & PR labeling |
 | [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
 | [Code Review Agent](https://shenxianpeng.github.io/repokeeper/module-6-review/) | Inline review, PR descriptions, incremental re-review |
+| [Release Notes](https://shenxianpeng.github.io/repokeeper/module-7-release/) | Draft releases from PRs and direct commits |
 | [Benchmarks](https://shenxianpeng.github.io/repokeeper/benchmarks/) | Cost and performance estimates by scenario |
 
 ## Contributing

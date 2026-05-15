@@ -14,7 +14,10 @@ Complete JSON Schema for `repokeeper.yml`.
   "notifications": { "...": "..." },
   "agent": { "...": "..." },
   "radar": { "...": "..." },
-  "patrol": { "...": "..." }
+  "patrol": { "...": "..." },
+  "labeler": { "...": "..." },
+  "review": { "...": "..." },
+  "release": { "...": "..." }
 }
 ```
 
@@ -102,3 +105,15 @@ Complete JSON Schema for `repokeeper.yml`.
 | `auto_upgrade_deps` | boolean | No | `true` | `true`, `false` |
 | `stale_days` | integer | No | `90` | 1–365 |
 | `ci_auto_fix` | boolean | No | `true` | `true`, `false` |
+
+## `release`
+
+| Key | Type | Required | Default | Valid Values |
+|-----|------|----------|---------|--------------|
+| `enabled` | boolean | No | `true` | `true`, `false` |
+| `model` | string or null | No | `null` | Any configured model name or `null` |
+| `temperature` | float | No | `0.1` | 0.0–2.0 |
+| `audience` | string | No | `"users and maintainers"` | Any string |
+| `categories` | list[string] | No | release sections | Any section names |
+| `include_prereleases` | boolean | No | `false` | `true`, `false` |
+| `prerelease` | boolean | No | `false` | `true`, `false` |

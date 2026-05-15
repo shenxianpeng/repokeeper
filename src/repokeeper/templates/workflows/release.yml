@@ -1,0 +1,35 @@
+name: RepoKeeper Release Notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Base tag/ref (leave empty for latest published release)'
+        required: false
+        type: string
+      target:
+        description: 'Target branch/ref (leave empty for default branch)'
+        required: false
+        type: string
+      tag:
+        description: 'Draft release tag (leave empty for next patch tag)'
+        required: false
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: shenxianpeng/repokeeper@v1
+        with:
+          module: release
+          repo: ${{ github.repository }}
+          release_base: ${{ github.event.inputs.base || '' }}
+          release_target: ${{ github.event.inputs.target || '' }}
+          release_tag: ${{ github.event.inputs.tag || '' }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          llm_base_url: ${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}

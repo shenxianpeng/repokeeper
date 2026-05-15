@@ -1,12 +1,12 @@
 name: 'RepoKeeper Maintainer Automation'
 author: 'Xianpeng Shen'
-description: 'Run RepoKeeper agent, review, monitor, patrol, and labeler modules from one action'
+description: 'Run RepoKeeper agent, review, monitor, patrol, labeler, and release modules from one action'
 branding:
   icon: 'git-pull-request'
   color: 'purple'
 inputs:
   module:
-    description: 'RepoKeeper module to run: agent, review, describe, radar, monitor, patrol, or labeler'
+    description: 'RepoKeeper module to run: agent, review, describe, radar, monitor, patrol, labeler, or release'
     required: false
     default: 'agent'
   repo:
@@ -30,6 +30,18 @@ inputs:
   github_token:
     description: 'GitHub token with contents, issues, and pull request write access'
     required: false
+  release_base:
+    description: 'Base tag/ref for module=release'
+    required: false
+    default: ''
+  release_target:
+    description: 'Target branch/ref for module=release'
+    required: false
+    default: ''
+  release_tag:
+    description: 'Draft release tag for module=release'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -43,9 +55,9 @@ runs:
         LLM_API_KEY: ${{ inputs.llm_api_key }}
       run: |
         case "$MODULE" in
-          agent|review|describe|radar|monitor|patrol|labeler) ;;
+          agent|review|describe|radar|monitor|patrol|labeler|release) ;;
           *)
-            echo "::error::Unsupported RepoKeeper module '$MODULE'. Use: agent, review, describe, radar, monitor, patrol, or labeler."
+            echo "::error::Unsupported RepoKeeper module '$MODULE'. Use: agent, review, describe, radar, monitor, patrol, labeler, or release."
             exit 1
             ;;
         esac
@@ -168,3 +180,29 @@ runs:
           PR_FLAG="--pr $PR_NUMBER"
         fi
         repokeeper labeler --repo "${{ inputs.repo }}" $ISSUE_FLAG $PR_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"
+
+    - name: Draft Release Notes
+      if: ${{ inputs.module == 'release' }}
+      shell: bash
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+        RELEASE_BASE: ${{ inputs.release_base }}
+        RELEASE_TARGET: ${{ inputs.release_target }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+      run: |
+        BASE_FLAG=""
+        TARGET_FLAG=""
+        TAG_FLAG=""
+        if [ -n "$RELEASE_BASE" ]; then
+          BASE_FLAG="--base $RELEASE_BASE"
+        fi
+        if [ -n "$RELEASE_TARGET" ]; then
+          TARGET_FLAG="--target $RELEASE_TARGET"
+        fi
+        if [ -n "$RELEASE_TAG" ]; then
+          TAG_FLAG="--tag $RELEASE_TAG"
+        fi
+        repokeeper release --repo "${{ inputs.repo }}" $BASE_FLAG $TARGET_FLAG $TAG_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"

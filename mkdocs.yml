@@ -60,6 +60,7 @@ nav:
     - Maintainer Profile: module-4-profile.md
     - Auto-Labeler: module-5-labeler.md
     - Code Review Agent: module-6-review.md
+    - Release Notes: module-7-release.md
   - Benchmarks: benchmarks.md
   - Reference:
     - Changelog: changelog.md

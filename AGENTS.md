@@ -15,6 +15,10 @@ Instructions for AI coding agents working on this repository.
 - Always ask before removing functionality or code that appears to be intentional
 - Do not preserve backward compatibility unless the user explicitly asks for it
 
+## Temporary Files
+
+- `a.py` and `src/main.py` are temporary generated files. If either exists as an untracked file, delete it before running lint, tests, or committing.
+
 ## Before Committing
 
 Always run the linter and fix any issues before committing:

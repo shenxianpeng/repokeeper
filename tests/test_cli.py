@@ -43,6 +43,7 @@ def test_workflow_templates_are_package_data():
     assert templates.joinpath("repokeeper.yml").is_file()
     assert templates.joinpath("radar.yml").is_file()
     assert templates.joinpath("patrol.yml").is_file()
+    assert templates.joinpath("release.yml").is_file()
 
 
 def test_agent_workflow_only_triggers_on_explicit_approval():
@@ -204,6 +205,52 @@ def test_patrol_without_summary(monkeypatch, capsys):
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Patrol: health=100/100" in captured.out
+
+
+def test_release_command_dry_run_summary(monkeypatch, capsys):
+    """release --dry-run prints the generated summary without writing a release."""
+    from repokeeper.release import ReleaseDraftResult
+
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
+    result = ReleaseDraftResult(
+        repo="owner/repo",
+        tag_name="v1.0.1",
+        name="v1.0.1",
+        body="## Changes\n- Test (#1)",
+        action="dry-run",
+        dry_run=True,
+    )
+    monkeypatch.setattr(cli, "run_release", lambda *a, **kw: result)
+
+    exit_code = cli.main(["release", "--repo", "owner/repo", "--dry-run"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "RepoKeeper Draft Release" in out
+    assert "Test (#1)" in out
+
+
+def test_release_command_created(monkeypatch, capsys):
+    """release command prints draft release URL after writing."""
+    from repokeeper.release import ReleaseDraftResult
+
+    monkeypatch.setenv("GITHUB_TOKEN", "tk")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "key")
+    result = ReleaseDraftResult(
+        repo="owner/repo",
+        tag_name="v1.0.1",
+        name="v1.0.1",
+        body="body",
+        action="created",
+        html_url="https://github.com/owner/repo/releases/tag/v1.0.1",
+    )
+    monkeypatch.setattr(cli, "run_release", lambda *a, **kw: result)
+
+    exit_code = cli.main(["release", "--repo", "owner/repo"])
+
+    assert exit_code == 0
+    assert "Draft release created for v1.0.1" in capsys.readouterr().out
 
 
 def test_default_path_for_init():

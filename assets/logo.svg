@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="RepoKeeper logo">
+  <defs>
+    <linearGradient id="rk-bg" x1="8" y1="6" x2="40" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="42" height="42" rx="10" fill="url(#rk-bg)"/>
+  <path d="M24 10 35 15v8c0 7-4.6 12.1-11 15-6.4-2.9-11-8-11-15v-8l11-5Z" fill="#F8FAFC" opacity=".96"/>
+  <path d="M19 21h7.5a3.5 3.5 0 1 0 0-7H19v20" fill="none" stroke="#111827" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M25 25 33 34" fill="none" stroke="#111827" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M15 37h18" fill="none" stroke="#60A5FA" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

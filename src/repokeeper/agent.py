@@ -1581,6 +1581,38 @@ def run_agent(
 
     issue_data = get_issue_data(repo, issue_number)
 
+    # ── Command parser: handle /repokeeper help and /repokeeper status ──
+    from repokeeper.commands import (
+        build_status_comment,
+        handle_help_command,
+        parse_commands,
+    )
+
+    # Check comments for /repokeeper commands
+    for comment_data in issue_data.get("comments", []):
+        comment_body = comment_data.get("body", "")
+        if not comment_body:
+            continue
+        parsed = parse_commands(comment_body)
+        if not parsed.has_any:
+            continue
+
+        # /repokeeper help
+        if any(cmd.verb == "help" for cmd in parsed.commands):
+            logger.info("Responding to /repokeeper help on issue #%d", issue_number)
+            handle_help_command(issue_obj)
+            return {"skip": True, "reason": "help requested", "pr_url": None}
+
+        # /repokeeper status
+        if any(cmd.verb == "status" for cmd in parsed.commands):
+            logger.info("Responding to /repokeeper status on issue #%d", issue_number)
+            activity = _collect_issue_activity(repo, issue_number)
+            status_comment = build_status_comment(
+                {**issue_data, "repo": repository}, activity,
+            )
+            post_comment(issue_obj, status_comment)
+            return {"skip": True, "reason": "status requested", "pr_url": None}
+
     # Branch to PR fix mode
     if is_pr_context:
         assert gh_token is not None and repository is not None
@@ -1932,6 +1964,54 @@ def run_agent(
 
 
 # ─── CLI entry point (backwards-compatible) ──────────────────────────────────
+
+
+def _collect_issue_activity(repo: Any, issue_number: int) -> dict[str, Any]:
+    """Collect RepoKeeper activity evidence for a status report.
+
+    Searches for RepoKeeper comments, linked PRs, and applied labels.
+    """
+    activity: dict[str, Any] = {
+        "agent_comments": [],
+        "prs_created": [],
+        "reviews_posted": [],
+        "labels_applied": [],
+        "fixes_applied": [],
+    }
+
+    try:
+        issue_obj = repo.get_issue(issue_number)
+
+        # Collect RepoKeeper comments
+        for comment in issue_obj.get_comments():
+            body = comment.body or ""
+            if "RepoKeeper" in body or "repokeeper" in body.lower():
+                activity["agent_comments"].append({
+                    "author": comment.user.login if comment.user else "unknown",
+                    "body": body[:300],
+                })
+
+        # Find linked PRs (search by branch prefix or mention in timeline)
+        for event in issue_obj.get_timeline():
+            event_type = getattr(event, "event", "")
+            if event_type in ("cross-referenced", "connected", "closed"):
+                source = getattr(event, "source", None)
+                if source and getattr(source, "type", "") == "pull_request":
+                    pr_url = getattr(source, "issue", {}).get("html_url", "")
+                    if pr_url:
+                        activity["prs_created"].append(pr_url)
+
+        # Collect labels applied by RepoKeeper
+        labels = [lb.name for lb in issue_obj.labels]
+        rkp_labels = [lb for lb in labels if "repokeeper" in lb.lower()
+                      or lb in ("agent-todo", "agent-review", "agent-fix")]
+        if rkp_labels:
+            activity["labels_applied"] = rkp_labels
+
+    except Exception as exc:
+        logger.debug("Could not collect full activity for #%d: %s", issue_number, exc)
+
+    return activity
 
 
 def _resolve_branch_collision(branch_name: str, repo: Any) -> str:

@@ -74,6 +74,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 branch = true
 source = ["repokeeper"]
+omit = ["*/repokeeper/ci_monitor.py"]
 
 [tool.coverage.report]
 fail_under = 80

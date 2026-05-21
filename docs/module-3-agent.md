@@ -265,6 +265,48 @@ The agent comments on the issue with the PR link and summary:
 Please review the changes before merging.
 ```
 
+### Step 10: CI Monitoring
+
+After the PR is created, RepoKeeper can watch CI checks on the PR. If any
+check fails, the CI monitor diagnoses the failure from real job/step log data
+and auto-pushes a fix to the same branch.
+
+Enable it by adding a scheduled workflow:
+
+```yaml
+# .github/workflows/repokeeper-ci-monitor.yml
+name: RepoKeeper CI Monitor
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # every 10 minutes
+  workflow_dispatch:
+
+jobs:
+  ci-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shenxianpeng/repokeeper@v1
+        with:
+          module: ci-monitor
+          repo: ${{ github.repository }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+```
+
+Or run it from the CLI:
+
+```bash
+repokeeper ci-monitor --repo owner/repo
+```
+
+CI monitoring is controlled by `patrol.ci_auto_fix` in your profile:
+
+```yaml
+patrol:
+  ci_auto_fix: true   # enables CI monitor auto-fix
+```
+
 ## Configuration
 
 ### Profile Settings

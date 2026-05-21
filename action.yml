@@ -59,9 +59,9 @@ runs:
         LLM_API_KEY: ${{ inputs.llm_api_key }}
       run: |
         case "$MODULE" in
-          agent|review|describe|radar|monitor|patrol|labeler|release|ci-monitor|help) ;;
+          agent|review|describe|radar|monitor|patrol|labeler|release|ci-monitor) ;;
           *)
-            echo "::error::Unsupported RepoKeeper module '$MODULE'. Use: agent, review, describe, radar, monitor, patrol, labeler, ci-monitor, help, or release."
+            echo "::error::Unsupported RepoKeeper module '$MODULE'. Use: agent, review, describe, radar, monitor, patrol, labeler, ci-monitor, or release."
             exit 1
             ;;
         esac

@@ -16,15 +16,13 @@ from repokeeper.llm_client import LLMClient
 
 from . import __version__
 from .agent import run_agent
-from .ci_monitor import run_ci_monitor as run_ci_monitor_fn
-from .commands import help_text as repokeeper_help_text
+from .ci_monitor import run_ci_monitor as _run_ci_monitor  # noqa: F401
 from .labeler import generate_labeler_summary, run_labeler
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
 from .radar import generate_radar_summary, run_radar
 from .release import generate_release_summary, run_release
 from .review import run_describe, run_review
-from .search import search_codebase, summarize_search_results
 
 AGENT_WORKFLOW = "repokeeper.yml"
 OPTIONAL_WORKFLOWS = ("radar.yml", "patrol.yml", "review.yml", "labeler.yml", "release.yml")
@@ -300,10 +298,11 @@ def cmd_release(args: argparse.Namespace) -> int:
 
 
 def cmd_ci_monitor(args: argparse.Namespace) -> int:
+    """Run CI monitor on agent PRs."""
     profile = load_profile(args.profile)
     gh = _make_github_client(args.github_token)
     llm = _make_llm_client(args.llm_api_key, args.llm_base_url)
-    result = run_ci_monitor_fn(
+    result = _run_ci_monitor(
         gh, llm, args.repo, profile=profile,
         max_prs=args.max_prs, repo_path=Path(args.path),
     )
@@ -317,31 +316,6 @@ def cmd_ci_monitor(args: argparse.Namespace) -> int:
         status = detail.get("overall", "?")
         fixed = " (auto-fixed)" if detail.get("fix_applied") else ""
         print(f"  PR #{detail['pr_number']}: {status}{fixed}")
-    return 0 if result.get("prs_fixed", 0) >= 0 else 1
-
-
-def cmd_search(args: argparse.Namespace) -> int:
-    from pathlib import Path as _Path
-
-    matches = search_codebase(
-        args.pattern,
-        file_patterns=args.glob,
-        max_results=args.max_results,
-        repo_root=_Path(args.path),
-    )
-
-    if args.summary:
-        print(summarize_search_results(matches, args.pattern))
-        return 0
-
-    print(f"Found {len(matches)} match(es) for '{args.pattern}'")
-    for m in matches:
-        print(f"  {m['file']}:{m['line_number']}  {m['line'][:100]}")
-    return 0
-
-
-def cmd_help(args: argparse.Namespace) -> int:
-    print(repokeeper_help_text())
     return 0
 
 
@@ -770,17 +744,6 @@ def build_parser() -> argparse.ArgumentParser:
     ci_monitor.add_argument("--path", default=".", help="Local repository path")
     ci_monitor.add_argument("--max-prs", type=int, default=10, help="Max PRs to check")
     ci_monitor.set_defaults(func=cmd_ci_monitor)
-
-    search = subparsers.add_parser("search", help="Search the codebase (grep-like)")
-    search.add_argument("pattern", help="Regex pattern or keyword to search for")
-    search.add_argument("--path", default=".", help="Repository path")
-    search.add_argument("--glob", nargs="*", default=None, help="File patterns (e.g. '*.py')")
-    search.add_argument("--max-results", type=int, default=50, help="Max matches")
-    search.add_argument("--summary", action="store_true", help="Print LLM-friendly markdown summary")
-    search.set_defaults(func=cmd_search)
-
-    _help = subparsers.add_parser("help", help="Show all available /repokeeper commands")
-    _help.set_defaults(func=cmd_help)
 
     return parser
 

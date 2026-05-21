@@ -586,7 +586,7 @@ def test_agent_dry_run_passes_flag(monkeypatch):
     assert captured.get("dry_run") is True
 
 
-# ── New commands: ci-monitor, search, help ──────────────────────────────
+# ── CI Monitor ──────────────────────────────────────────────────────────
 
 def test_ci_monitor_command(monkeypatch, capsys):
     def _fake_github_client(token=None):
@@ -595,7 +595,7 @@ def test_ci_monitor_command(monkeypatch, capsys):
         return None
     monkeypatch.setattr(cli, "_make_github_client", _fake_github_client)
     monkeypatch.setattr(cli, "_make_llm_client", _fake_llm_client)
-    monkeypatch.setattr(cli, "run_ci_monitor_fn", lambda gh, llm, repo, **kw: {
+    monkeypatch.setattr(cli, "_run_ci_monitor", lambda gh, llm, repo, **kw: {
         "prs_checked": 2, "prs_fixed": 1,
         "details": [
             {"pr_number": 1, "overall": "success", "fix_applied": False},
@@ -613,34 +613,6 @@ def test_ci_monitor_command_max_prs(monkeypatch):
     monkeypatch.setattr(cli, "_make_github_client", lambda token=None: None)
     monkeypatch.setattr(cli, "_make_llm_client", lambda api_key=None, base_url=None: None)
     captured = {}
-    monkeypatch.setattr(cli, "run_ci_monitor_fn", lambda gh, llm, repo, **kw: captured.update(kw) or {"prs_checked": 0, "prs_fixed": 0, "details": []})
+    monkeypatch.setattr(cli, "_run_ci_monitor", lambda gh, llm, repo, **kw: captured.update(kw) or {"prs_checked": 0, "prs_fixed": 0, "details": []})
     cli.main(["ci-monitor", "--repo", "owner/repo", "--max-prs", "5"])
     assert captured.get("max_prs") == 5
-
-
-def test_search_command(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "search_codebase", lambda pattern, **kw: [
-        {"file": "test.py", "line_number": 1, "line": "def foo():"},
-        {"file": "test.py", "line_number": 5, "line": "    foo()"},
-    ])
-    exit_code = cli.main(["search", "foo"])
-    assert exit_code == 0
-    out = capsys.readouterr().out
-    assert "2 match" in out
-    assert "test.py" in out
-
-
-def test_search_command_summary(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "search_codebase", lambda pattern, **kw: [])
-    exit_code = cli.main(["search", "foo", "--summary"])
-    assert exit_code == 0
-    out = capsys.readouterr().out
-    assert "no matches" in out
-
-
-def test_help_command(capsys):
-    exit_code = cli.main(["help"])
-    assert exit_code == 0
-    out = capsys.readouterr().out
-    assert "RepoKeeper Commands" in out
-    assert "/repokeeper go" in out

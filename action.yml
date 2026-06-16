@@ -42,6 +42,10 @@ inputs:
     description: 'Draft release tag for module=release'
     required: false
     default: ''
+  ci_monitor_max_prs:
+    description: 'Max PRs to check for module=ci-monitor'
+    required: false
+    default: '10'
 
 runs:
   using: 'composite'
@@ -55,9 +59,9 @@ runs:
         LLM_API_KEY: ${{ inputs.llm_api_key }}
       run: |
         case "$MODULE" in
-          agent|review|describe|radar|monitor|patrol|labeler|release) ;;
+          agent|review|describe|radar|monitor|patrol|labeler|release|ci-monitor) ;;
           *)
-            echo "::error::Unsupported RepoKeeper module '$MODULE'. Use: agent, review, describe, radar, monitor, patrol, labeler, or release."
+            echo "::error::Unsupported RepoKeeper module '$MODULE'. Use: agent, review, describe, radar, monitor, patrol, labeler, ci-monitor, or release."
             exit 1
             ;;
         esac
@@ -79,6 +83,11 @@ runs:
 
         if [ "$MODULE" = "labeler" ] && [ -z "$ISSUE_NUMBER" ] && [ -z "$PR_NUMBER" ]; then
           echo "::error::module=labeler requires at least one of 'issue' or 'pr' inputs."
+          exit 1
+        fi
+
+        if [ "$MODULE" = "ci-monitor" ] && [ -z "${{ inputs.repo }}" ]; then
+          echo "::error::module=ci-monitor requires the 'repo' input."
           exit 1
         fi
 
@@ -206,3 +215,13 @@ runs:
           TAG_FLAG="--tag $RELEASE_TAG"
         fi
         repokeeper release --repo "${{ inputs.repo }}" $BASE_FLAG $TARGET_FLAG $TAG_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"
+
+    - name: Run CI Monitor
+      if: ${{ inputs.module == 'ci-monitor' }}
+      shell: bash
+      env:
+        DEEPSEEK_API_KEY: ${{ inputs.llm_api_key }}
+        REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPOSITORY: ${{ inputs.repo }}
+        LLM_BASE_URL: ${{ inputs.llm_base_url }}
+      run: repokeeper ci-monitor --repo "${{ inputs.repo }}" --max-prs "${{ inputs.ci_monitor_max_prs }}"

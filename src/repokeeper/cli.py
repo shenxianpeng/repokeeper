@@ -16,6 +16,7 @@ from repokeeper.llm_client import LLMClient
 
 from . import __version__
 from .agent import run_agent
+from .ci_monitor import run_ci_monitor as _run_ci_monitor  # noqa: F401
 from .labeler import generate_labeler_summary, run_labeler
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
@@ -293,6 +294,28 @@ def cmd_release(args: argparse.Namespace) -> int:
     else:
         suffix = f": {result.html_url}" if result.html_url else ""
         print(f"Draft release {result.action} for {result.tag_name}{suffix}")
+    return 0
+
+
+def cmd_ci_monitor(args: argparse.Namespace) -> int:
+    """Run CI monitor on agent PRs."""
+    profile = load_profile(args.profile)
+    gh = _make_github_client(args.github_token)
+    llm = _make_llm_client(args.llm_api_key, args.llm_base_url)
+    result = _run_ci_monitor(
+        gh, llm, args.repo, profile=profile,
+        max_prs=args.max_prs, repo_path=Path(args.path),
+    )
+    print(
+        f"CI Monitor: {result['prs_checked']} PR(s) checked, "
+        f"{result['prs_fixed']} auto-fixed"
+    )
+    if result.get("reason"):
+        print(f"Skipped: {result['reason']}")
+    for detail in result.get("details", []):
+        status = detail.get("overall", "?")
+        fixed = " (auto-fixed)" if detail.get("fix_applied") else ""
+        print(f"  PR #{detail['pr_number']}: {status}{fixed}")
     return 0
 
 
@@ -715,6 +738,12 @@ def build_parser() -> argparse.ArgumentParser:
     labeler.add_argument("--pr", type=int, default=None, help="PR number to label")
     labeler.add_argument("--summary", action="store_true", help="Print markdown summary")
     labeler.set_defaults(func=cmd_labeler)
+
+    ci_monitor = subparsers.add_parser("ci-monitor", help="Monitor CI on agent PRs and auto-fix failures")
+    add_common_remote(ci_monitor)
+    ci_monitor.add_argument("--path", default=".", help="Local repository path")
+    ci_monitor.add_argument("--max-prs", type=int, default=10, help="Max PRs to check")
+    ci_monitor.set_defaults(func=cmd_ci_monitor)
 
     return parser
 

@@ -43,6 +43,7 @@ diagnosing CI, monitoring your community, and iterating on fixes?
 | **Auto-labeling** | No | Yes | Yes | Yes — 15 categories, diff-aware |
 | **Dependency scanning** | No | No | No | Yes — 8 ecosystems |
 | **CI diagnosis + fix** | No | No | No | Yes — auto-repair PRs |
+| **CI monitoring (agent PRs)** | No | No | No | Yes — auto-fix on failure |
 | **Community monitoring** | No | No | No | Yes — Radar (issues + discussions) |
 | **Scheduled / cron** | No | No | No | Yes — daily patrol |
 | **Multi-model** | GitHub models only | Multiple | Multiple | DeepSeek / OpenAI / Claude |
@@ -57,7 +58,8 @@ diagnosing CI, monitoring your community, and iterating on fixes?
 
 - **🔭 Community Radar** — Monitors GitHub issues **and discussions** for keywords. AI classifies hits as bugs, feature requests, or noise. **Auto-creates issues** with deduplication and RepoKeeper branding, linking back to original discussions. Notifies via email, Telegram, or WeChat.
 - **🔍 Daily Patrol** — Scans **8 ecosystems** (pip, npm, Go, Cargo, Bundler, Composer, Maven, Gradle) for outdated deps. Diagnoses CI failures with real job/step data. **Auto-fixes CI** by opening repair PRs. Finds stale issues. Health score every weekday morning.
-- **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. Supports **two backends**: native (single LLM call, ~$0.001) and **Pi** (autonomous agent loop, reads files, runs tests, self-corrects). **PR fix mode**: comment `/repokeeper go` on a PR with feedback → agent reads the conversation → pushes fixes to the same branch.
+- **🤖 Implementation Agent** — Reads your codebase + issue → implements → verifies (lint + tests) → pushes branch → opens PR. Supports **two backends**: native (single LLM call, ~$0.001) and **Pi** (autonomous agent loop, reads files, runs tests, self-corrects). **PR fix mode**: comment `/repokeeper go` on a PR with feedback → agent reads the conversation → pushes fixes to the same branch. **CI monitoring**: watches agent PRs for CI failures and auto-pushes fixes.
+- **🔧 CI Monitor** — After the Implementation Agent opens a PR, monitors CI checks. **Diagnoses failures** using real job/step log data. **Auto-pushes fixes** to the same branch when CI breaks.
 - **📝 Code Review Agent** — Reads PR diffs → checks against your profile → posts **inline line-level comments** with severity indicators and suggestion blocks. Incremental re-review on new commits. Auto-generates PR descriptions from diffs.
 - **🏷️ Auto-Labeler** — AI classifies new issues and PRs, picks labels from your repo's existing set (matching naming conventions), and creates new labels only when needed — with consistent style and descriptions. Diff-aware PR classification.
 - **Release Notes** — Drafts GitHub release notes from merged PRs, direct commits, labels, and changed files. Creates or updates draft releases only; publishing remains manual.
@@ -231,6 +233,7 @@ repokeeper labeler --repo owner/repo --pr 42
 repokeeper review --repo owner/repo --pr 42
 repokeeper describe --repo owner/repo --pr 42
 repokeeper release --repo owner/repo --dry-run
+repokeeper ci-monitor --repo owner/repo
 ```
 
 ---
@@ -248,7 +251,7 @@ Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.i
 | [Dogfood Cases](https://shenxianpeng.github.io/repokeeper/dogfood/) | Public proof and learning log for RepoKeeper runs |
 | [Community Radar](https://shenxianpeng.github.io/repokeeper/module-1-radar/) | Monitor your community |
 | [Daily Patrol](https://shenxianpeng.github.io/repokeeper/module-2-patrol/) | Automated health checks |
-| [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |
+| [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs + CI monitoring |
 | [Auto-Labeler](https://shenxianpeng.github.io/repokeeper/module-5-labeler/) | AI-powered issue & PR labeling |
 | [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
 | [Code Review Agent](https://shenxianpeng.github.io/repokeeper/module-6-review/) | Inline review, PR descriptions, incremental re-review |

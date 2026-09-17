@@ -7,7 +7,7 @@ RepoKeeper is published in three places that must stay aligned:
 | GitHub release | `https://github.com/shenxianpeng/repokeeper/releases/latest` | `gh release view --repo shenxianpeng/repokeeper` |
 | Floating action tag | `shenxianpeng/repokeeper@v1` | `git ls-remote --tags origin v1` |
 | PyPI package | `https://pypi.org/project/repokeeper/` | `python -m pip index versions repokeeper` |
-| Documentation | `https://shenxianpeng.github.io/repokeeper/` | `uv run --extra docs mkdocs build --strict` |
+| Documentation | `https://shenxianpeng.dev/repokeeper/` | `uv run --extra docs mkdocs build --strict` |
 
 As of 2026-05-14, the latest GitHub release and PyPI package are both
 `v1.4.0` / `1.4.0`.

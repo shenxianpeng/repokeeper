@@ -9,7 +9,7 @@
 #   3. repokeeper.yml             (this file, per-repo)
 #   4. RKP_* environment variables
 #
-# Docs: https://shenxianpeng.github.io/repokeeper
+# Docs: https://shenxianpeng.dev/repokeeper
 
 maintainer: shenxianpeng
 

@@ -1,6 +1,6 @@
 site_name: RepoKeeper
 site_description: AI-powered open source maintainer agent — monitors, maintains, implements
-site_url: https://shenxianpeng.github.io/repokeeper/
+site_url: https://shenxianpeng.dev/repokeeper/
 repo_url: https://github.com/shenxianpeng/repokeeper
 repo_name: shenxianpeng/repokeeper
 edit_uri: edit/main/docs/

@@ -9,7 +9,7 @@
 [![PyPI](https://img.shields.io/pypi/v/repokeeper.svg)](https://pypi.org/project/repokeeper/)
 [![Python](https://img.shields.io/pypi/pyversions/repokeeper.svg)](https://pypi.org/project/repokeeper/)
 [![RepoKeeper](https://img.shields.io/badge/%F0%9F%A4%96-RepoKeeper-6e40c9)](https://github.com/shenxianpeng/repokeeper)
-[![Docs](https://img.shields.io/badge/docs-mkdocs--ng-4051b5)](https://shenxianpeng.github.io/repokeeper/)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--ng-4051b5)](https://shenxianpeng.dev/repokeeper/)
 
 **AI-powered open source maintainer agent. Reads issues, writes code, opens PRs — 24/7.**
 
@@ -237,23 +237,23 @@ repokeeper release --repo owner/repo --dry-run
 
 ## Documentation
 
-Full docs at **[shenxianpeng.github.io/repokeeper](https://shenxianpeng.github.io/repokeeper)**
+Full docs at **[shenxianpeng.dev/repokeeper](https://shenxianpeng.dev/repokeeper)**
 
 | Guide | |
 |---|---|
-| [Quick Start](https://shenxianpeng.github.io/repokeeper/quick-start/) | 5-minute setup |
-| [Release Consistency](https://shenxianpeng.github.io/repokeeper/release/) | Keep GitHub release, PyPI, docs, and action tags aligned |
-| [GitHub Marketplace](https://shenxianpeng.github.io/repokeeper/marketplace/) | Listing copy and demo script |
-| [Security](https://shenxianpeng.github.io/repokeeper/security/) | Permissions, tokens, and automation boundaries |
-| [Dogfood Cases](https://shenxianpeng.github.io/repokeeper/dogfood/) | Public proof and learning log for RepoKeeper runs |
-| [Community Radar](https://shenxianpeng.github.io/repokeeper/module-1-radar/) | Monitor your community |
-| [Daily Patrol](https://shenxianpeng.github.io/repokeeper/module-2-patrol/) | Automated health checks |
-| [Implementation Agent](https://shenxianpeng.github.io/repokeeper/module-3-agent/) | AI-powered PRs |
-| [Auto-Labeler](https://shenxianpeng.github.io/repokeeper/module-5-labeler/) | AI-powered issue & PR labeling |
-| [Maintainer Profile](https://shenxianpeng.github.io/repokeeper/module-4-profile/) | Full config reference |
-| [Code Review Agent](https://shenxianpeng.github.io/repokeeper/module-6-review/) | Inline review, PR descriptions, incremental re-review |
-| [Release Notes](https://shenxianpeng.github.io/repokeeper/module-7-release/) | Draft releases from PRs and direct commits |
-| [Benchmarks](https://shenxianpeng.github.io/repokeeper/benchmarks/) | Cost and performance estimates by scenario |
+| [Quick Start](https://shenxianpeng.dev/repokeeper/quick-start/) | 5-minute setup |
+| [Release Consistency](https://shenxianpeng.dev/repokeeper/release/) | Keep GitHub release, PyPI, docs, and action tags aligned |
+| [GitHub Marketplace](https://shenxianpeng.dev/repokeeper/marketplace/) | Listing copy and demo script |
+| [Security](https://shenxianpeng.dev/repokeeper/security/) | Permissions, tokens, and automation boundaries |
+| [Dogfood Cases](https://shenxianpeng.dev/repokeeper/dogfood/) | Public proof and learning log for RepoKeeper runs |
+| [Community Radar](https://shenxianpeng.dev/repokeeper/module-1-radar/) | Monitor your community |
+| [Daily Patrol](https://shenxianpeng.dev/repokeeper/module-2-patrol/) | Automated health checks |
+| [Implementation Agent](https://shenxianpeng.dev/repokeeper/module-3-agent/) | AI-powered PRs |
+| [Auto-Labeler](https://shenxianpeng.dev/repokeeper/module-5-labeler/) | AI-powered issue & PR labeling |
+| [Maintainer Profile](https://shenxianpeng.dev/repokeeper/module-4-profile/) | Full config reference |
+| [Code Review Agent](https://shenxianpeng.dev/repokeeper/module-6-review/) | Inline review, PR descriptions, incremental re-review |
+| [Release Notes](https://shenxianpeng.dev/repokeeper/module-7-release/) | Draft releases from PRs and direct commits |
+| [Benchmarks](https://shenxianpeng.dev/repokeeper/benchmarks/) | Cost and performance estimates by scenario |
 
 ## Contributing
 
@@ -267,7 +267,7 @@ RepoKeeper creates reviewable pull requests and inline code review comments;
 it does not approve or merge for you. The default workflow limits write
 access to branches, issue comments, and pull requests, and the agent blocks
 edits under `.github/workflows/`. See the
-[Security guide](https://shenxianpeng.github.io/repokeeper/security/) before
+[Security guide](https://shenxianpeng.dev/repokeeper/security/) before
 enabling it on sensitive repositories.
 
 ---

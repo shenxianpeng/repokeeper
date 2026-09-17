@@ -29,5 +29,5 @@ issues against older versions.
 RepoKeeper automates maintenance by opening **reviewable pull requests** —
 it never auto-merges, never modifies `.github/workflows/`, and restricts
 trigger access to repository collaborators.  See the [full security
-documentation](https://shenxianpeng.github.io/repokeeper/security/) for
+documentation](https://shenxianpeng.dev/repokeeper/security/) for
 details on permissions, tokens, trigger control, and repository guardrails.

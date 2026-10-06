@@ -55,7 +55,7 @@ repokeeper = "repokeeper.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/shenxianpeng/repokeeper"
-Documentation = "https://shenxianpeng.github.io/repokeeper"
+Documentation = "https://shenxianpeng.dev/repokeeper"
 Issues = "https://github.com/shenxianpeng/repokeeper/issues"
 Source = "https://github.com/shenxianpeng/repokeeper"
 

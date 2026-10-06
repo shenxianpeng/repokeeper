@@ -6,7 +6,7 @@ branding:
   color: 'purple'
 inputs:
   module:
-    description: 'RepoKeeper module to run: agent, review, describe, radar, monitor, patrol, labeler, or release'
+    description: 'RepoKeeper module to run: agent, review, describe, radar, monitor, patrol, labeler, ci-monitor, or release'
     required: false
     default: 'agent'
   repo:
@@ -57,6 +57,7 @@ runs:
         ISSUE_NUMBER: ${{ inputs.issue }}
         PR_NUMBER: ${{ inputs.pr }}
         LLM_API_KEY: ${{ inputs.llm_api_key }}
+        REPO_SLUG: ${{ inputs.repo }}
       run: |
         case "$MODULE" in
           agent|review|describe|radar|monitor|patrol|labeler|release|ci-monitor) ;;
@@ -86,7 +87,7 @@ runs:
           exit 1
         fi
 
-        if [ "$MODULE" = "ci-monitor" ] && [ -z "${{ inputs.repo }}" ]; then
+        if [ "$MODULE" = "ci-monitor" ] && [ -z "$REPO_SLUG" ]; then
           echo "::error::module=ci-monitor requires the 'repo' input."
           exit 1
         fi
@@ -224,4 +225,6 @@ runs:
         REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
-      run: repokeeper ci-monitor --repo "${{ inputs.repo }}" --max-prs "${{ inputs.ci_monitor_max_prs }}"
+        REPO_SLUG: ${{ inputs.repo }}
+        CI_MONITOR_MAX_PRS: ${{ inputs.ci_monitor_max_prs }}
+      run: repokeeper ci-monitor --repo "$REPO_SLUG" --max-prs "$CI_MONITOR_MAX_PRS"

@@ -16,7 +16,7 @@ from repokeeper.llm_client import LLMClient
 
 from . import __version__
 from .agent import run_agent
-from .ci_monitor import run_ci_monitor as _run_ci_monitor  # noqa: F401
+from .ci_monitor import run_ci_monitor as _run_ci_monitor
 from .labeler import generate_labeler_summary, run_labeler
 from .patrol import generate_health_summary, run_patrol
 from .profile import generate_profile_template, load_profile, validate_profile
@@ -316,6 +316,8 @@ def cmd_ci_monitor(args: argparse.Namespace) -> int:
         status = detail.get("overall", "?")
         fixed = " (auto-fixed)" if detail.get("fix_applied") else ""
         print(f"  PR #{detail['pr_number']}: {status}{fixed}")
+        if detail.get("fix_summary"):
+            print(f"    {detail['fix_summary']}")
     return 0
 
 

@@ -600,6 +600,8 @@ def test_ci_monitor_command(monkeypatch, capsys):
         "details": [
             {"pr_number": 1, "overall": "success", "fix_applied": False},
             {"pr_number": 2, "overall": "failure", "fix_applied": True},
+            {"pr_number": 3, "overall": "failure", "fix_applied": False,
+             "fix_summary": "PR #3: reached the limit of 3 CI fix attempts"},
         ],
     })
     exit_code = cli.main(["ci-monitor", "--repo", "owner/repo"])
@@ -607,6 +609,19 @@ def test_ci_monitor_command(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "2 PR(s) checked" in out
     assert "1 auto-fixed" in out
+    assert "  PR #1: success\n" in out
+    assert "  PR #2: failure (auto-fixed)\n" in out
+    assert "  PR #3: failure\n    PR #3: reached the limit of 3 CI fix attempts\n" in out
+
+
+def test_ci_monitor_command_reports_disabled(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_make_github_client", lambda token=None: None)
+    monkeypatch.setattr(cli, "_make_llm_client", lambda api_key=None, base_url=None: None)
+    monkeypatch.setattr(cli, "_run_ci_monitor", lambda gh, llm, repo, **kw: {
+        "prs_checked": 0, "prs_fixed": 0, "details": [], "reason": "ci_auto_fix disabled",
+    })
+    assert cli.main(["ci-monitor", "--repo", "owner/repo"]) == 0
+    assert "Skipped: ci_auto_fix disabled" in capsys.readouterr().out
 
 
 def test_ci_monitor_command_max_prs(monkeypatch):

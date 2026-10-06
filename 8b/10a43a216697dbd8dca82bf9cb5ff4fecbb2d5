@@ -1,0 +1,53 @@
+.github/workflows/ci.yml
+  s_b3aadf4812adc9::t_a50eafec9f6114 17,19,37
+.github/workflows/docs.yml
+  s_b3aadf4812adc9::t_fe6e695517fd01 21,23,40,42
+.github/workflows/draft-release.yml
+  s_b3aadf4812adc9::t_fa211e9c338364 21
+.github/workflows/labeler.yml
+  s_b3aadf4812adc9::t_757a3a30274b12 24
+.github/workflows/patrol.yml
+  s_b3aadf4812adc9::t_e44b707c67c241 17
+.github/workflows/radar.yml
+  s_b3aadf4812adc9::t_4dacd4e975967f 16
+.github/workflows/release-tag.yml
+  s_b3aadf4812adc9::t_64add6c3afb354 24
+.github/workflows/release.yml
+  s_b3aadf4812adc9::t_c303e56c55719f 15,42,44
+.github/workflows/repokeeper.yml
+  s_b3aadf4812adc9::t_07cd0027930f4a 41
+.github/workflows/review.yml
+  s_b3aadf4812adc9::t_c029070064265d 32
+README.md
+  s_b3aadf4812adc9::t_9cd640099a24f0 12,243,247-259,273
+SECURITY.md
+  s_b3aadf4812adc9::t_8ea4fd5041e1a8 32
+action.yml
+  s_b3aadf4812adc9::t_d9044cf7003ea2 94,98,102
+docs/release.md
+  s_b3aadf4812adc9::t_feeb1a82cd029e 10
+mkdocs.yml
+  s_b3aadf4812adc9::t_655e772e7df2e4 3
+pyproject.toml
+  s_b3aadf4812adc9::t_f11f74d5f38ae4 58
+repokeeper.yml
+  s_b3aadf4812adc9::t_c7adebc4a19c3f 12
+uv.lock
+  s_b3aadf4812adc9::t_e2be12b4b54451 39,46,48,435,441-487,522,604,1416,1421,1423,1433,1439,1441,1915,1917,1919
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8b10a43a216697dbd8dca82bf9cb5ff4fecbb2d5",
+  "prompts": {},
+  "sessions": {
+    "s_b3aadf4812adc9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0b5424bb-7df4-4fa5-a939-8318e2f61faf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Xianpeng Shen <xianpeng.shen@gmail.com>"
+    }
+  }
+}

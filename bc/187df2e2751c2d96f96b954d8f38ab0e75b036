@@ -1,0 +1,19 @@
+action.yml
+  s_b3aadf4812adc9::t_c4ff7bd71dc745 9,60,90,228-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bc187df2e2751c2d96f96b954d8f38ab0e75b036",
+  "prompts": {},
+  "sessions": {
+    "s_b3aadf4812adc9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0b5424bb-7df4-4fa5-a939-8318e2f61faf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Xianpeng Shen <xianpeng.shen@gmail.com>"
+    }
+  }
+}

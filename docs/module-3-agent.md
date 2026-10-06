@@ -265,6 +265,74 @@ The agent comments on the issue with the PR link and summary:
 Please review the changes before merging.
 ```
 
+### Step 10: CI Monitoring
+
+After the PR is created, RepoKeeper can watch CI checks on the PR. If a
+GitHub Actions check fails, the CI monitor diagnoses the failure from the
+job/step results and the log of the failed job, and pushes a fix commit to the
+same branch.
+
+Enable it by adding a scheduled workflow:
+
+```yaml
+# .github/workflows/repokeeper-ci-monitor.yml
+name: RepoKeeper CI Monitor
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # every 10 minutes
+  workflow_dispatch:
+
+jobs:
+  ci-monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # push the fix commit
+      pull-requests: write   # comment on the PR
+      checks: read           # read check runs
+      actions: read          # read job logs
+    steps:
+      - uses: shenxianpeng/repokeeper@v1
+        with:
+          module: ci-monitor
+          repo: ${{ github.repository }}
+          llm_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          github_token: ${{ secrets.REPOKEEPER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+```
+
+Or run it from the CLI, inside a clone of the repository:
+
+```bash
+repokeeper ci-monitor --repo owner/repo
+```
+
+The fix is prepared in a temporary git worktree, so your checkout, branch,
+uncommitted changes and `origin` remote are not modified.
+
+What the CI monitor will and will not do:
+
+- It only considers PRs whose head branch starts with `repokeeper/` and lives
+  in the repository itself. PRs from forks are never touched, whatever their
+  branch name or description says, and it never pushes to the default branch.
+- It only handles failed or timed-out GitHub Actions checks. Cancelled runs,
+  runs waiting for approval, and checks reported by other apps are left alone.
+- It makes one attempt per head commit and at most three per PR. Every attempt
+  (a pushed fix, a declined fix, or an error) leaves one PR comment. Delete
+  that comment to allow another attempt for the same commit.
+- Fixes cannot modify `.github/workflows/`.
+- The fix is a regular, non-forced commit on the PR branch. Review it like any
+  other agent change before merging.
+- Commits pushed with the default `GITHUB_TOKEN` do not start new workflow
+  runs (a GitHub restriction), so such a fix is not re-tested until CI is
+  triggered another way.
+
+CI monitoring is controlled by `patrol.ci_auto_fix` in your profile:
+
+```yaml
+patrol:
+  ci_auto_fix: true   # enables CI monitor auto-fix
+```
+
 ## Configuration
 
 ### Profile Settings

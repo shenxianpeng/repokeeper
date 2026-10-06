@@ -584,3 +584,50 @@ def test_agent_dry_run_passes_flag(monkeypatch):
     monkeypatch.setattr(cli, "run_agent", lambda **kw: captured.update(kw) or {"skip": True, "reason": "dry-run"})
     cli.main(["agent", "--repo", "owner/repo", "--issue", "1", "--dry-run"])
     assert captured.get("dry_run") is True
+
+
+# ── CI Monitor ──────────────────────────────────────────────────────────
+
+def test_ci_monitor_command(monkeypatch, capsys):
+    def _fake_github_client(token=None):
+        return None
+    def _fake_llm_client(api_key=None, base_url=None):
+        return None
+    monkeypatch.setattr(cli, "_make_github_client", _fake_github_client)
+    monkeypatch.setattr(cli, "_make_llm_client", _fake_llm_client)
+    monkeypatch.setattr(cli, "_run_ci_monitor", lambda gh, llm, repo, **kw: {
+        "prs_checked": 2, "prs_fixed": 1,
+        "details": [
+            {"pr_number": 1, "overall": "success", "fix_applied": False},
+            {"pr_number": 2, "overall": "failure", "fix_applied": True},
+            {"pr_number": 3, "overall": "failure", "fix_applied": False,
+             "fix_summary": "PR #3: reached the limit of 3 CI fix attempts"},
+        ],
+    })
+    exit_code = cli.main(["ci-monitor", "--repo", "owner/repo"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "2 PR(s) checked" in out
+    assert "1 auto-fixed" in out
+    assert "  PR #1: success\n" in out
+    assert "  PR #2: failure (auto-fixed)\n" in out
+    assert "  PR #3: failure\n    PR #3: reached the limit of 3 CI fix attempts\n" in out
+
+
+def test_ci_monitor_command_reports_disabled(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_make_github_client", lambda token=None: None)
+    monkeypatch.setattr(cli, "_make_llm_client", lambda api_key=None, base_url=None: None)
+    monkeypatch.setattr(cli, "_run_ci_monitor", lambda gh, llm, repo, **kw: {
+        "prs_checked": 0, "prs_fixed": 0, "details": [], "reason": "ci_auto_fix disabled",
+    })
+    assert cli.main(["ci-monitor", "--repo", "owner/repo"]) == 0
+    assert "Skipped: ci_auto_fix disabled" in capsys.readouterr().out
+
+
+def test_ci_monitor_command_max_prs(monkeypatch):
+    monkeypatch.setattr(cli, "_make_github_client", lambda token=None: None)
+    monkeypatch.setattr(cli, "_make_llm_client", lambda api_key=None, base_url=None: None)
+    captured = {}
+    monkeypatch.setattr(cli, "_run_ci_monitor", lambda gh, llm, repo, **kw: captured.update(kw) or {"prs_checked": 0, "prs_fixed": 0, "details": []})
+    cli.main(["ci-monitor", "--repo", "owner/repo", "--max-prs", "5"])
+    assert captured.get("max_prs") == 5

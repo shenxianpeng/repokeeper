@@ -11,6 +11,7 @@ Daily repository health checks:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -649,6 +650,28 @@ def _fetch_ci_log_snippet(
     return "\n".join(lines)
 
 
+# Per-line timestamp prefix and ANSI colour codes in GitHub Actions job logs.
+_JOB_LOG_NOISE_RE = re.compile(r"^\ufeff?\d{4}-\d{2}-\d{2}T[\d:.]+Z |\x1b\[[0-9;]*m", re.MULTILINE)
+
+
+def _trim_job_log(text: str, max_chars: int) -> str:
+    """Reduce a raw job log to the part most likely to explain the failure.
+
+    A failed step ends with a ``##[error]`` line.  Everything after the last
+    one is post-job cleanup, which is long enough to fill the whole window on
+    its own, so the window ends at that line instead of at the end of the log.
+    """
+    text = _JOB_LOG_NOISE_RE.sub("", text.lstrip("\ufeff"))
+    marker = text.rfind("##[error]")
+    if marker != -1:
+        line_end = text.find("\n", marker)
+        if line_end != -1:
+            text = text[:line_end]
+    if len(text) > max_chars:
+        text = "...(truncated)...\n" + text[-(max_chars - 20):]
+    return text
+
+
 def _fetch_job_logs(
     requester: Any,
     repo: str,
@@ -658,7 +681,7 @@ def _fetch_job_logs(
     """Fetch and truncate the log output for a failed CI job.
 
     Downloads the raw log text from the GitHub Actions API and returns the
-    tail portion (most likely to contain the actual error).
+    portion leading up to the failure (see :func:`_trim_job_log`).
 
     Args:
         requester: PyGithub Requester instance.
@@ -670,22 +693,30 @@ def _fetch_job_logs(
         Truncated log text, or empty string on failure.
     """
     try:
-        _headers, data = requester.requestJsonAndCheck(
+        headers, data = requester.requestJsonAndCheck(
             "GET", f"/repos/{repo}/actions/jobs/{job_id}/logs",
         )
-        # The logs endpoint returns the raw text body, but requestJsonAndCheck
-        # may wrap it depending on content-type. Handle both cases.
-        if isinstance(data, str):
+        # GitHub answers with a 302 to a short-lived pre-signed download URL.
+        # PyGithub neither follows it nor accepts the storage host, so the body
+        # is empty and the redirect target has to be downloaded separately.
+        # The URL is pre-signed, so no token is sent to the storage host.
+        location = headers.get("location", "") if isinstance(headers, dict) else ""
+        if isinstance(location, str) and location.startswith("https://"):
+            import requests
+
+            response = requests.get(location, timeout=30)
+            response.raise_for_status()
+            # The storage host sends no charset; the log itself is UTF-8.
+            text = response.content.decode("utf-8", errors="replace")
+        elif isinstance(data, str):
             text = data
         elif isinstance(data, dict):
-            text = data.get("message", "") or str(data)
+            # PyGithub wraps a non-JSON body as {"data": "<raw text>"}.
+            text = data.get("data") or data.get("message", "") or str(data)
         else:
             return ""
 
-        if len(text) > max_chars:
-            # Keep the tail — errors are usually at the end
-            text = "...(truncated)...\n" + text[-(max_chars - 20):]
-        return text
+        return _trim_job_log(text, max_chars)
     except Exception as e:
         logger.debug(f"Failed to fetch job logs for job {job_id}: {e}")
         return ""

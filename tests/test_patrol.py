@@ -15,7 +15,9 @@ from repokeeper.patrol import (
     PatrolReport,
     StaleIssue,
     _fetch_ci_log_snippet,
+    _fetch_job_logs,
     _get_gh_token_from_client,
+    _trim_job_log,
     attempt_ci_auto_fix,
     calculate_health,
     check_bundler_deps,
@@ -537,6 +539,123 @@ def test_fetch_ci_log_snippet_non_dict_data(monkeypatch):
         conclusion="failure", run_url="https://x",
     )
     assert "Workflow: CI" in snippet
+
+
+def test_fetch_ci_log_snippet_includes_failed_job_log(monkeypatch):
+    """The log of a failed job is downloaded and embedded in the snippet."""
+    mock_requester = MagicMock()
+    mock_requester.requestJsonAndCheck.return_value = (
+        {},
+        {"jobs": [{
+            "id": 77, "name": "test", "conclusion": "failure", "status": "completed",
+            "steps": [{"name": "Run tests", "conclusion": "failure"}],
+        }]},
+    )
+    mock_gh = MagicMock()
+    mock_gh._Github__requester = mock_requester
+    seen = {}
+
+    def _fake_job_logs(requester, repo, job_id):
+        seen.update(requester=requester, repo=repo, job_id=job_id)
+        return "AssertionError: boom"
+
+    monkeypatch.setattr("repokeeper.patrol._fetch_job_logs", _fake_job_logs)
+    snippet = _fetch_ci_log_snippet(
+        mock_gh, "owner/repo", run_id=42, workflow_name="CI",
+        conclusion="failure", run_url="https://x",
+    )
+    assert seen == {"requester": mock_requester, "repo": "owner/repo", "job_id": 77}
+    assert "--- Log for job 'test' ---\nAssertionError: boom\n  --- End log ---" in snippet
+
+
+# ── _fetch_job_logs ───────────────────────────────────────────────────────────
+
+_RAW_JOB_LOG = (
+    "\ufeff2026-07-26T22:08:17.3103410Z Current runner version: '2.335.1'\n"
+    "2026-07-26T22:12:15.3795318Z \x1b[31;1merror\x1b[0m: test run failed (28.82µs)\n"
+    "2026-07-26T22:12:15.3804583Z ##[error]Process completed with exit code 100.\n"
+    "2026-07-26T22:12:15.9000000Z Post job cleanup.\n"
+    "2026-07-26T22:12:16.0000000Z Cleaning up orphan processes\n"
+)
+
+
+def test_trim_job_log_ends_at_last_error_and_drops_noise():
+    """Timestamps, colour codes and the post-job cleanup are removed."""
+    assert _trim_job_log(_RAW_JOB_LOG, 3000) == (
+        "Current runner version: '2.335.1'\n"
+        "error: test run failed (28.82µs)\n"
+        "##[error]Process completed with exit code 100."
+    )
+
+
+def test_trim_job_log_keeps_the_text_right_before_the_error():
+    log = "setup line\n" * 500 + "the real failure\n##[error]exit code 1\n" + "cleanup\n" * 500
+    trimmed = _trim_job_log(log, 200)
+    assert len(trimmed) <= 200
+    assert trimmed.startswith("...(truncated)...\n")
+    assert trimmed.endswith("the real failure\n##[error]exit code 1")
+
+
+def test_trim_job_log_without_error_marker_keeps_tail():
+    trimmed = _trim_job_log("a\n" * 100 + "last line", 50)
+    assert trimmed.endswith("last line")
+    assert len(trimmed) <= 50
+
+
+def test_fetch_job_logs_follows_redirect_to_signed_url(monkeypatch):
+    """The API answers 302 with an empty body; the log lives at the Location URL."""
+    signed_url = "https://results.example.test/logs/job-77?sig=abc"
+    requester = MagicMock()
+    requester.requestJsonAndCheck.return_value = ({"location": signed_url}, None)
+    calls = []
+
+    def _fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return MagicMock(content=_RAW_JOB_LOG.encode("utf-8"))
+
+    monkeypatch.setattr("requests.get", _fake_get)
+    text = _fetch_job_logs(requester, "owner/repo", 77)
+
+    requester.requestJsonAndCheck.assert_called_once_with(
+        "GET", "/repos/owner/repo/actions/jobs/77/logs",
+    )
+    # Only the pre-signed URL is requested; no credentials are forwarded.
+    assert calls == [(signed_url, {"timeout": 30})]
+    assert text.endswith("error: test run failed (28.82µs)\n##[error]Process completed with exit code 100.")
+
+
+def test_fetch_job_logs_ignores_non_https_redirect(monkeypatch):
+    requester = MagicMock()
+    requester.requestJsonAndCheck.return_value = ({"location": "http://insecure.test/log"}, None)
+
+    def _must_not_fetch(*args, **kwargs):
+        raise AssertionError("must not follow a non-https redirect")
+
+    monkeypatch.setattr("requests.get", _must_not_fetch)
+    assert _fetch_job_logs(requester, "owner/repo", 77) == ""
+
+
+def test_fetch_job_logs_accepts_inline_body():
+    """Older responses that carry the text directly still work."""
+    requester = MagicMock()
+    requester.requestJsonAndCheck.return_value = ({}, {"data": "line 1\n##[error]failed\nafter"})
+    assert _fetch_job_logs(requester, "owner/repo", 77) == "line 1\n##[error]failed"
+
+    requester.requestJsonAndCheck.return_value = ({}, "plain text log")
+    assert _fetch_job_logs(requester, "owner/repo", 77) == "plain text log"
+
+
+def test_fetch_job_logs_returns_empty_on_error(monkeypatch):
+    requester = MagicMock()
+    requester.requestJsonAndCheck.side_effect = RuntimeError("410 Gone")
+    assert _fetch_job_logs(requester, "owner/repo", 77) == ""
+
+    requester.requestJsonAndCheck.side_effect = None
+    requester.requestJsonAndCheck.return_value = ({"location": "https://x.test/log"}, None)
+    failing = MagicMock()
+    failing.raise_for_status.side_effect = RuntimeError("403")
+    monkeypatch.setattr("requests.get", lambda url, **kw: failing)
+    assert _fetch_job_logs(requester, "owner/repo", 77) == ""
 
 
 # ── diagnose_ci_failure ───────────────────────────────────────────────────────

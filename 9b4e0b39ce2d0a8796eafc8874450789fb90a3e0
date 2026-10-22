@@ -1,0 +1,23 @@
+pyproject.toml
+  s_808bcb54b94641::t_d698c7f18e01db 79
+tests/test_agent.py
+  s_808bcb54b94641::t_bd7847108b9dfa 3183-3914
+src/repokeeper/agent.py
+  s_808bcb54b94641::t_07f2cc6c40f626 398,1048
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9b4e0b39ce2d0a8796eafc8874450789fb90a3e0",
+  "prompts": {},
+  "sessions": {
+    "s_808bcb54b94641": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f452822-7f74-42c5-8597-23c2eec5567e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Xianpeng Shen <xianpeng.shen@gmail.com>"
+    }
+  }
+}

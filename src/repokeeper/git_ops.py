@@ -42,7 +42,8 @@ def safe_repo_path(
         raise ValueError(f"Refusing path traversal: {filepath}")
 
     normalized = raw_path.as_posix()
-    while normalized.startswith("./"):
+    # pathlib already collapses leading "./" segments, so this loop is defensive only.
+    while normalized.startswith("./"):  # pragma: no cover
         normalized = normalized[2:]
     if any(normalized == prefix.rstrip("/") or normalized.startswith(prefix)
            for prefix in blocked_prefixes):
@@ -382,7 +383,7 @@ def fix_and_push(
 
     if not already_checked_out:
         git("fetch", "origin", f"pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}")
-        git("checkout", "-b", local_branch, "origin/pr/{pr_number}")
+        git("checkout", "-b", local_branch, f"origin/pr/{pr_number}")
 
     apply_implementation_changes(implementation)
 

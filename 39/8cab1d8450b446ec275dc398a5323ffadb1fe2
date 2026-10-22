@@ -1,0 +1,33 @@
+tests/test_logs.py
+  s_808bcb54b94641::t_fa2043763dd626 1-175
+tests/test_verifier.py
+  s_808bcb54b94641::t_84be78d23868fe 1-240
+  s_808bcb54b94641::t_57688a1bb3266e 241-242
+tests/test_git_ops.py
+  s_808bcb54b94641::t_7b4df37b029dd1 1-442
+  s_808bcb54b94641::t_b11572653b0562 443-449
+tests/test_collaboration.py
+  s_808bcb54b94641::t_4aae133408ab24 1-103
+tests/test_repo_context.py
+  s_808bcb54b94641::t_b29979f4313b5e 1-281
+  s_808bcb54b94641::t_9c28b639c96d2a 282-290
+src/repokeeper/git_ops.py
+  s_808bcb54b94641::t_b01392c226cea3 386
+  s_808bcb54b94641::t_9b9a6c202ce43a 45-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "398cab1d8450b446ec275dc398a5323ffadb1fe2",
+  "prompts": {},
+  "sessions": {
+    "s_808bcb54b94641": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f452822-7f74-42c5-8597-23c2eec5567e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Xianpeng Shen <xianpeng.shen@gmail.com>"
+    }
+  }
+}

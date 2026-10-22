@@ -548,3 +548,172 @@ def test_llm_client_from_env(monkeypatch):
     with patch.dict(sys.modules, {"openai": mock_openai}):
         client = LLMClient.from_env()
         assert client.provider == "openai"
+
+
+# ── Streaming edge cases ─────────────────────────────────────────────────────
+
+
+def _openai_chunk(content=None, finish_reason=None, usage=None):
+    chunk = MagicMock()
+    chunk.choices = [MagicMock()]
+    chunk.choices[0].delta.content = content
+    chunk.choices[0].finish_reason = finish_reason
+    chunk.usage = usage
+    return chunk
+
+
+def test_chat_openai_streaming_prints_progress_and_skips_cost_for_unknown_model(capsys):
+    from repokeeper.llm_client import _chat_openai
+
+    client = MagicMock()
+    chunks = [_openai_chunk(content="x") for _ in range(40)]
+    chunks.append(_openai_chunk(finish_reason="length"))
+    client.chat.completions.create.return_value = chunks
+
+    resp = _chat_openai(client, "mystery-model", "sys", [], 0.1, 10, stream=True)
+
+    out = capsys.readouterr().out
+    assert out.count(".") == 2
+    assert "done (40 chunks, 0 tokens)" in out
+    assert resp.content == "x" * 40
+    assert resp.finish_reason == "length"
+    assert resp.usage.cost_usd == 0.0
+    assert resp.usage.total_tokens == 0
+
+
+def test_chat_openai_streaming_handles_chunks_without_choices():
+    from repokeeper.llm_client import _chat_openai
+
+    client = MagicMock()
+    usage_only = MagicMock()
+    usage_only.choices = []
+    usage_only.usage.prompt_tokens = None
+    usage_only.usage.completion_tokens = 5
+    client.chat.completions.create.return_value = [_openai_chunk(content="hi"), usage_only]
+
+    resp = _chat_openai(client, "deepseek-chat", "sys", [], 0.1, 10, stream=True)
+
+    assert resp.content == "hi"
+    assert resp.usage.prompt_tokens == 0
+    assert resp.usage.completion_tokens == 5
+    assert resp.usage.cost_usd > 0
+
+
+def test_chat_openai_non_streaming_without_usage():
+    from repokeeper.llm_client import _chat_openai
+
+    client = MagicMock()
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.content = None
+    response.choices[0].finish_reason = None
+    response.usage = None
+    client.chat.completions.create.return_value = response
+
+    resp = _chat_openai(client, "deepseek-chat", "sys", [], 0.1, 10, stream=False)
+
+    assert resp.content == ""
+    assert resp.finish_reason == ""
+    assert resp.usage.total_tokens == 0
+
+
+def test_chat_anthropic_non_streaming_empty_content_and_blocks_without_text():
+    from repokeeper.llm_client import _chat_anthropic
+
+    client = MagicMock()
+    response = MagicMock()
+    response.content = []
+    response.usage = None
+    response.stop_reason = None
+    client.messages.create.return_value = response
+
+    resp = _chat_anthropic(client, "claude-3-5-haiku-20241022", "sys", [], 0.1, 10, False)
+    assert resp.content == ""
+    assert resp.finish_reason == ""
+    assert resp.usage.total_tokens == 0
+
+    text_block = type("TextBlock", (), {"text": "hello"})()
+    tool_block = type("ToolBlock", (), {"name": "tool"})()
+    response.content = [text_block, tool_block]
+    response.usage = MagicMock(input_tokens=10, output_tokens=5)
+    response.stop_reason = "end_turn"
+
+    resp = _chat_anthropic(client, "claude-3-5-haiku-20241022", "sys", [], 0.1, 10, False)
+    assert resp.content == "hello"
+    assert resp.usage.total_tokens == 15
+    assert resp.usage.cost_usd > 0
+
+
+def _anthropic_stream(client, texts, final):
+    stream = MagicMock()
+    stream.text_stream = texts
+    stream.get_final_message.return_value = final
+    stream.__enter__ = MagicMock(return_value=stream)
+    stream.__exit__ = MagicMock(return_value=False)
+    client.messages.stream.return_value = stream
+    return stream
+
+
+def test_chat_anthropic_streaming_prints_progress_and_handles_minimal_final(capsys):
+    from repokeeper.llm_client import _chat_anthropic
+
+    client = MagicMock()
+    final = type("Final", (), {})()
+    _anthropic_stream(client, ["t"] * 20, final)
+
+    resp = _chat_anthropic(client, "unknown-model", "sys", [], 0.1, 10, stream=True)
+
+    out = capsys.readouterr().out
+    assert out.count(".") == 1
+    assert "done (20 chunks, 0 tokens)" in out
+    assert resp.content == "t" * 20
+    assert resp.finish_reason == ""
+    assert resp.usage.cost_usd == 0.0
+
+
+def test_chat_anthropic_streaming_handles_missing_usage_and_none_counts():
+    from repokeeper.llm_client import _chat_anthropic
+
+    client = MagicMock()
+    final = MagicMock()
+    final.stop_reason = None
+    final.usage = None
+    _anthropic_stream(client, ["a"], final)
+
+    resp = _chat_anthropic(client, "claude-sonnet-4-20250514", "sys", [], 0.1, 10, stream=True)
+    assert resp.finish_reason == ""
+    assert resp.usage.total_tokens == 0
+
+    final.usage = MagicMock(input_tokens=None, output_tokens=None)
+    resp = _chat_anthropic(client, "claude-sonnet-4-20250514", "sys", [], 0.1, 10, stream=True)
+    assert resp.usage.total_tokens == 0
+
+
+def test_llm_client_anthropic_import_error(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with patch.dict(sys.modules, {"anthropic": None}):
+        with pytest.raises(ImportError, match="pip install anthropic"):
+            LLMClient()
+
+
+# ── JSON repair edge cases ───────────────────────────────────────────────────
+
+
+def test_repair_truncated_json_closes_array_then_object():
+    assert _repair_truncated_json('{"a": [1, 2]') == '{"a": [1, 2]}'
+    assert _repair_truncated_json('{"a": [1, 2], "b": ]') == '{"a": [1, 2], "b": ]}'
+    assert _repair_truncated_json('{"a": "x\\"y') == '{"a": "x\\"y"}'
+    assert _repair_truncated_json("[1}") == "[1}]"
+
+
+def test_parse_llm_json_fails_when_extraction_and_repair_do_not_help():
+    with pytest.raises(LLMParseError, match="Failed to parse LLM JSON response"):
+        parse_llm_json("prefix {not: json} suffix")
+    with pytest.raises(LLMParseError, match="Failed to parse LLM JSON response"):
+        parse_llm_json('{"a": bad')
+
+
+def test_parse_llm_json_bare_fence_with_and_without_json_hint():
+    assert parse_llm_json('```json{"a": 1}') == {"a": 1}
+    assert parse_llm_json('```{"a": 2}') == {"a": 2}

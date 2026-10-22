@@ -1,0 +1,29 @@
+src/repokeeper/llm_client.py
+  s_808bcb54b94641::t_1513cbb55c2dc5 521,555
+src/repokeeper/review.py
+  s_808bcb54b94641::t_71e6c6faf5e4d2 483
+tests/test_llm_client.py
+  s_808bcb54b94641::t_753b5e3431200e 551-719
+tests/test_profile.py
+  s_808bcb54b94641::t_ff5b6094da521a 205-225
+tests/test_release.py
+  s_808bcb54b94641::t_321068216187cb 246-504
+tests/test_review.py
+  s_808bcb54b94641::t_ace384c12a3779 1135-1339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "85d8ba93e59ad940f4450382771390672cf50152",
+  "prompts": {},
+  "sessions": {
+    "s_808bcb54b94641": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f452822-7f74-42c5-8597-23c2eec5567e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Xianpeng Shen <xianpeng.shen@gmail.com>"
+    }
+  }
+}

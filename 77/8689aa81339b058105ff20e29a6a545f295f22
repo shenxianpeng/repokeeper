@@ -1,0 +1,37 @@
+.github/workflows/ci.yml
+  s_6535937731a8c8::t_7bf21ea9c1968c 9-11,20,22,40
+.github/workflows/docs.yml
+  s_6535937731a8c8::t_66670ce4f954ee 17-19,24,26,43,45
+.github/workflows/labeler.yml
+  s_6535937731a8c8::t_0dacca1fdb4444 24,28-29,31-32
+.github/workflows/patrol.yml
+  s_6535937731a8c8::t_24e4d36924e71b 8-10,20
+.github/workflows/radar.yml
+  s_6535937731a8c8::t_efae5ff6bb76dd 8-10,19
+.github/workflows/release-tag.yml
+  s_6535937731a8c8::t_42224db85dd77c 34-35,38-41
+.github/workflows/release.yml
+  s_6535937731a8c8::t_aba6ff4c1f740e 9-11,18,23,31-32,41,47,49,63,78,84
+.github/workflows/repokeeper.yml
+  s_6535937731a8c8::t_58d2209576d231 11-13,44,48-49,54
+.github/workflows/review.yml
+  s_6535937731a8c8::t_530266a7549637 9-11,35
+action.yml
+  s_6535937731a8c8::t_9be3163c4077b8 85,89,93,116,118,130,142,152,162,183,209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "778689aa81339b058105ff20e29a6a545f295f22",
+  "prompts": {},
+  "sessions": {
+    "s_6535937731a8c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7be933fd-3555-4179-bf89-3d88091b3193",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Xianpeng Shen <xianpeng.shen@gmail.com>"
+    }
+  }
+}

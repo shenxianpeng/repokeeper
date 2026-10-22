@@ -21,13 +21,15 @@ jobs:
   labeler:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Determine target
         id: target
+        env:
+          INPUT_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
         run: |
-          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
-            echo "issue=${{ github.event.inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_ISSUE_NUMBER" ]; then
+            echo "issue=$INPUT_ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
             echo "pr=" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "pull_request_target" ]; then
             echo "issue=" >> "$GITHUB_OUTPUT"

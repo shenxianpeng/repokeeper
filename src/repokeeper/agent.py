@@ -395,7 +395,7 @@ def call_llm(
                 ) from err
 
     # Unreachable — satisfy type checker
-    raise LLMParseError("LLM JSON parsing failed")
+    raise LLMParseError("LLM JSON parsing failed")  # pragma: no cover - loop always returns or raises
 
 
 # ─── Two-step file selection ────────────────────────────────────────────────
@@ -1045,7 +1045,7 @@ Read the feedback below and the PR diff, then produce fixes.
                     f"Last error: {err}"
                 ) from err
 
-    raise LLMParseError("LLM JSON parsing failed")
+    raise LLMParseError("LLM JSON parsing failed")  # pragma: no cover - loop always returns or raises
 
 
 def run_fix_pr(

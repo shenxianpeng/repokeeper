@@ -82,15 +82,15 @@ runs:
           exit 1
         fi
 
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
 
-    - uses: actions/setup-python@v7
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
       with:
         python-version: '3.10'
 
-    - uses: actions/setup-node@v7
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
       if: ${{ inputs.module == 'agent' }}
       with:
         node-version: '20'
@@ -113,8 +113,9 @@ runs:
         REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
+        ISSUE_NUMBER: ${{ inputs.issue }}
         PR_NUMBER: ${{ inputs.pr }}
-      run: repokeeper agent --repo "${{ inputs.repo }}" --issue "${{ inputs.issue }}"
+      run: repokeeper agent --repo "$GITHUB_REPOSITORY" --issue "$ISSUE_NUMBER"
 
     - name: Run Code Review Agent
       if: ${{ inputs.module == 'review' }}
@@ -126,7 +127,7 @@ runs:
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
         PR_NUMBER: ${{ inputs.pr }}
-      run: repokeeper review --repo "${{ inputs.repo }}" --pr "${{ inputs.pr }}"
+      run: repokeeper review --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"
 
     - name: Generate PR Description
       if: ${{ inputs.module == 'describe' }}
@@ -138,7 +139,7 @@ runs:
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
         PR_NUMBER: ${{ inputs.pr }}
-      run: repokeeper describe --repo "${{ inputs.repo }}" --pr "${{ inputs.pr }}"
+      run: repokeeper describe --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"
 
     - name: Run Community Radar
       if: ${{ inputs.module == 'radar' || inputs.module == 'monitor' }}
@@ -148,7 +149,7 @@ runs:
         REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
-      run: repokeeper radar --repo "${{ inputs.repo }}" --summary | tee "$GITHUB_STEP_SUMMARY"
+      run: repokeeper radar --repo "$GITHUB_REPOSITORY" --summary | tee "$GITHUB_STEP_SUMMARY"
 
     - name: Run Daily Patrol
       if: ${{ inputs.module == 'patrol' }}
@@ -158,7 +159,7 @@ runs:
         REPOKEEPER_GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPOSITORY: ${{ inputs.repo }}
         LLM_BASE_URL: ${{ inputs.llm_base_url }}
-      run: repokeeper patrol --repo "${{ inputs.repo }}" --summary | tee "$GITHUB_STEP_SUMMARY"
+      run: repokeeper patrol --repo "$GITHUB_REPOSITORY" --summary | tee "$GITHUB_STEP_SUMMARY"
 
     - name: Run Auto-Labeler
       if: ${{ inputs.module == 'labeler' }}
@@ -179,7 +180,7 @@ runs:
         if [ -n "$PR_NUMBER" ]; then
           PR_FLAG="--pr $PR_NUMBER"
         fi
-        repokeeper labeler --repo "${{ inputs.repo }}" $ISSUE_FLAG $PR_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"
+        repokeeper labeler --repo "$GITHUB_REPOSITORY" $ISSUE_FLAG $PR_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"
 
     - name: Draft Release Notes
       if: ${{ inputs.module == 'release' }}
@@ -205,4 +206,4 @@ runs:
         if [ -n "$RELEASE_TAG" ]; then
           TAG_FLAG="--tag $RELEASE_TAG"
         fi
-        repokeeper release --repo "${{ inputs.repo }}" $BASE_FLAG $TARGET_FLAG $TAG_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"
+        repokeeper release --repo "$GITHUB_REPOSITORY" $BASE_FLAG $TARGET_FLAG $TAG_FLAG --summary | tee "$GITHUB_STEP_SUMMARY"

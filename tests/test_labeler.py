@@ -710,3 +710,339 @@ def test_suggest_labels_comment_empty():
 
 def test_labeler_label_is_repokeeper_labeler():
     assert LABELER_LABEL == "repokeeper-labeler"
+
+
+# ── Prompt helpers ───────────────────────────────────────────────────────────
+
+
+def test_infer_convention_falls_back_when_no_pattern_dominates():
+    labels = [{"name": n} for n in ["a/b", "c: d", "e-f", "G h"]]
+
+    assert _infer_label_naming_convention(labels) == "plain lowercase (e.g. 'bug', 'enhancement')"
+
+
+def test_build_labeler_system_prompt_without_labels():
+    from repokeeper.labeler import _build_labeler_system_prompt, _describe_palette
+
+    prompt = _build_labeler_system_prompt([], target_type="issue")
+
+    assert "(No existing labels in this repository.)" in prompt
+    assert "use standard GitHub label colors" in prompt
+    assert "New labels may include a short description" in prompt
+    assert _describe_palette([{"name": "x", "color": ""}]) == "use standard GitHub label colors"
+
+
+def test_normalize_helpers_reject_malformed_values():
+    from repokeeper.labeler import _normalize_new_labels, _normalize_string_list
+
+    assert _normalize_string_list("bug") == []
+    assert _normalize_string_list(["bug", "", None, 3]) == ["bug", "3"]
+    assert _normalize_new_labels({"name": "x"}) == []
+    assert _normalize_new_labels(["junk", {"name": "  "}, {"name": "ok", "color": "#abc"}]) == [
+        {"name": "ok", "description": "", "color": "abc"}
+    ]
+
+
+# ── fetch helpers ────────────────────────────────────────────────────────────
+
+
+def test_fetch_pr_data_caps_file_summary_at_fifty():
+    files = []
+    for i in range(55):
+        f = MagicMock()
+        f.filename = f"file{i}.py"
+        f.status = "added"
+        f.additions = 1
+        f.deletions = 0
+        files.append(f)
+    mock_gh, _, _ = _mock_gh_with_pr(files=files)
+
+    data = fetch_pr_data(mock_gh, "owner/repo", 42)
+
+    assert data["changed_files_count"] == 55
+    assert data["changed_files_summary"].endswith("... and 5 more files")
+
+
+def test_fetch_issue_error_returns_none():
+    mock_gh = MagicMock()
+    mock_gh.get_repo.side_effect = RuntimeError("boom")
+
+    assert fetch_issue(mock_gh, "owner/repo", 1) is None
+
+
+def _issue_mock(number, labels=(), is_pr=False):
+    issue = MagicMock()
+    issue.number = number
+    issue.title = f"Issue {number}"
+    issue.body = None
+    issue.html_url = f"https://github.com/owner/repo/issues/{number}"
+    issue.pull_request = object() if is_pr else None
+    issue.labels = []
+    for name in labels:
+        label = MagicMock()
+        label.name = name
+        issue.labels.append(label)
+    return issue
+
+
+def test_find_unlabeled_issues_skips_prs_labeled_issues_and_respects_max():
+    mock_gh = MagicMock()
+    mock_repo = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+    mock_repo.get_issues.return_value = [
+        _issue_mock(1, is_pr=True),
+        _issue_mock(2, labels=["bug"]),
+        _issue_mock(3, labels=["admin"]),
+        _issue_mock(4),
+        _issue_mock(5),
+    ]
+
+    found = find_unlabeled_issues(mock_gh, "owner/repo", exclude_labels=["admin"], max_issues=2)
+
+    assert [i["number"] for i in found] == [3, 4]
+    assert found[0]["labels"] == ["admin"]
+    assert found[0]["body"] == ""
+
+
+def test_find_unlabeled_issues_error_returns_empty():
+    mock_gh = MagicMock()
+    mock_gh.get_repo.side_effect = RuntimeError("boom")
+
+    assert find_unlabeled_issues(mock_gh, "owner/repo") == []
+
+
+# ── resolve_labels_against_repo ──────────────────────────────────────────────
+
+
+def test_resolve_handles_malformed_classification_and_caps_new_labels():
+    assert resolve_labels_against_repo(
+        {"existing_labels": "bug", "new_labels": {"name": "x"}}, {"bug"}
+    ) == ([], [])
+
+    existing, new = resolve_labels_against_repo(
+        {
+            "existing_labels": ["bug"],
+            "new_labels": [
+                "junk",
+                {"name": ""},
+                {"name": "bug"},
+                {"name": "n1"},
+                {"name": "n1"},
+                {"name": "n2"},
+                {"name": "n3"},
+            ],
+        },
+        {"bug"},
+        max_labels=3,
+    )
+
+    assert existing == ["bug"]
+    assert [nl["name"] for nl in new] == ["n1", "n2"]
+
+
+# ── GitHub write helpers ─────────────────────────────────────────────────────
+
+
+def test_apply_labels_error_returns_empty():
+    mock_gh = MagicMock()
+    mock_gh.get_repo.side_effect = RuntimeError("boom")
+
+    assert apply_labels(mock_gh, "owner/repo", 1, ["bug"]) == []
+
+
+def test_create_new_labels_skips_blank_names_and_tolerates_failures():
+    mock_gh, mock_repo, _ = _mock_gh_with_pr()
+    mock_repo.create_label.side_effect = [None, RuntimeError("forbidden")]
+
+    created = create_new_labels(
+        mock_gh,
+        "owner/repo",
+        [{"name": "  "}, {"name": "ok", "color": "abc"}, {"name": "fails"}],
+    )
+
+    assert created == ["ok"]
+
+    mock_gh.get_repo.side_effect = RuntimeError("no repo")
+    assert create_new_labels(mock_gh, "owner/repo", [{"name": "x"}]) == []
+
+
+def test_suggest_labels_comment_only_new_labels_and_error():
+    mock_gh, mock_repo, mock_issue = _mock_gh_with_issue()
+
+    posted = suggest_labels_comment(
+        mock_gh, "owner/repo", 42, {"category": "bug", "confidence": 0.9},
+        [], [{"name": "new-one", "description": "desc"}],
+    )
+
+    assert posted is True
+    comment = mock_issue.create_comment.call_args[0][0]
+    assert "Apply existing labels" not in comment
+    assert "**Create new labels:** `new-one` — _desc_" in comment
+
+    mock_gh.get_repo.side_effect = RuntimeError("boom")
+    assert suggest_labels_comment(
+        mock_gh, "owner/repo", 42, {}, ["bug"], [],
+    ) is False
+
+
+# ── _label_single branches ───────────────────────────────────────────────────
+
+
+def test_label_single_pr_not_found_is_skipped():
+    mock_gh = MagicMock()
+    mock_gh.get_repo.side_effect = RuntimeError("boom")
+
+    result = label_single_pr(mock_gh, _FakeLabelerLLM(), "owner/repo", 7, {}, repo_labels=[])
+
+    assert result.action == "skipped"
+    assert result.skipped_reason == "PR not found or inaccessible"
+
+
+def test_label_single_issue_skips_when_nothing_matches():
+    mock_gh, _, _ = _mock_gh_with_issue()
+    llm = _FakeLabelerLLM(existing_labels=["does-not-exist"], new_labels=[])
+
+    result = label_single_issue(mock_gh, llm, "owner/repo", 42, {})
+
+    assert result.action == "skipped"
+    assert result.skipped_reason == "no matching labels found in repo"
+
+
+def test_label_single_issue_skips_new_labels_when_creation_disabled():
+    mock_gh, _, _ = _mock_gh_with_issue()
+    llm = _FakeLabelerLLM(existing_labels=[], new_labels=[{"name": "fresh"}])
+
+    result = label_single_issue(
+        mock_gh, llm, "owner/repo", 42, {"labeler": {"allow_create_labels": False}}
+    )
+
+    assert result.action == "skipped"
+    assert result.suggested_labels == ["fresh"]
+
+
+def test_label_single_issue_creates_and_applies_new_labels():
+    mock_gh, mock_repo, mock_issue = _mock_gh_with_issue()
+    mock_repo.get_label.side_effect = RuntimeError("not found")
+    llm = _FakeLabelerLLM(existing_labels=[], new_labels=[{"name": "fresh", "color": "abc"}])
+
+    result = label_single_issue(mock_gh, llm, "owner/repo", 42, {})
+
+    assert result.action == "labeled"
+    assert result.created_labels == ["fresh"]
+    assert result.applied_labels == ["fresh"]
+    mock_repo.create_label.assert_called_once_with(name="fresh", color="abc", description="")
+    mock_issue.add_to_labels.assert_called_once_with("fresh")
+
+
+def test_label_single_issue_reports_apply_failure():
+    mock_gh, mock_repo, mock_issue = _mock_gh_with_issue()
+    mock_issue.add_to_labels.side_effect = RuntimeError("forbidden")
+    llm = _FakeLabelerLLM(existing_labels=["bug"])
+
+    result = label_single_issue(mock_gh, llm, "owner/repo", 42, {})
+
+    assert result.action == "skipped"
+    assert result.skipped_reason == "failed to apply labels"
+
+
+def test_label_single_issue_suggest_mode_comment_failure():
+    mock_gh, mock_repo, mock_issue = _mock_gh_with_issue()
+    mock_issue.create_comment.side_effect = RuntimeError("forbidden")
+    llm = _FakeLabelerLLM(existing_labels=["bug"])
+
+    result = label_single_issue(mock_gh, llm, "owner/repo", 42, {"labeler": {"mode": "suggest"}})
+
+    assert result.action == "skipped"
+    assert result.skipped_reason == "failed to post suggestion comment"
+
+
+# ── Batch and entry point ────────────────────────────────────────────────────
+
+
+def test_label_unlabeled_issues_buckets_every_outcome(monkeypatch):
+    from repokeeper import labeler
+
+    unlabeled = [{"number": n, "url": f"u{n}", "title": f"t{n}"} for n in (1, 2, 3, 4, 5)]
+    monkeypatch.setattr(labeler, "fetch_repo_labels", lambda gh, repo: [])
+    monkeypatch.setattr(labeler, "find_unlabeled_issues", lambda *a, **kw: unlabeled)
+
+    def fake_single(gh, llm, repo, number, profile, repo_labels=None):
+        if number == 1:
+            return LabelerResult(1, "u1", "t1", action="labeled")
+        if number == 2:
+            return LabelerResult(2, "u2", "t2", action="commented")
+        if number == 3:
+            return LabelerResult(3, "u3", "t3", action="skipped", error="bad")
+        if number == 4:
+            raise RuntimeError("exploded")
+        return LabelerResult(5, "u5", "t5", action="skipped", skipped_reason="low")
+
+    monkeypatch.setattr(labeler, "label_single_issue", fake_single)
+
+    report = label_unlabeled_issues(MagicMock(), MagicMock(), "owner/repo", {})
+
+    assert report.total_issues == 5
+    assert [r.issue_number for r in report.labeled] == [1]
+    assert [r.issue_number for r in report.commented] == [2]
+    assert [r.issue_number for r in report.errors] == [3, 4]
+    assert report.errors[1].error == "exploded"
+    assert [r.issue_number for r in report.skipped] == [5]
+
+
+@pytest.mark.parametrize(
+    ("result", "bucket"),
+    [
+        (LabelerResult(1, "u", "t", action="commented"), "commented"),
+        (LabelerResult(1, "u", "t", action="skipped", error="bad"), "errors"),
+        (LabelerResult(1, "u", "t", action="skipped"), "skipped"),
+    ],
+)
+def test_run_labeler_single_issue_buckets_result(monkeypatch, result, bucket):
+    from repokeeper import labeler
+
+    monkeypatch.setattr(labeler, "label_single_issue", lambda *a, **kw: result)
+
+    report = run_labeler(MagicMock(), MagicMock(), "owner/repo", profile={}, issue_number=1)
+
+    assert report.total_issues == 1
+    assert getattr(report, bucket) == [result]
+
+
+def test_run_labeler_batch_mode_delegates(monkeypatch):
+    from repokeeper import labeler
+
+    expected = LabelerReport(repo="owner/repo", scanned_at=datetime.now())
+    monkeypatch.setattr(labeler, "label_unlabeled_issues", lambda *a, **kw: expected)
+
+    assert run_labeler(MagicMock(), MagicMock(), "owner/repo", profile={}) is expected
+
+
+def test_generate_labeler_summary_lists_errors():
+    error = LabelerResult(9, "https://x/9", "Broken", action="skipped", error="LLM down")
+    report = LabelerReport(
+        repo="owner/repo",
+        scanned_at=datetime(2026, 1, 1, 12, 0),
+        total_issues=1,
+        results=[error],
+        errors=[error],
+    )
+
+    summary = generate_labeler_summary(report)
+
+    assert "## ❌ Errors" in summary
+    assert "- [#9 Broken](https://x/9) — LLM down" in summary
+    assert "No issues to process" not in summary
+
+
+def test_label_single_issue_skips_when_label_creation_fails():
+    mock_gh, mock_repo, mock_issue = _mock_gh_with_issue()
+    mock_repo.get_label.side_effect = RuntimeError("not found")
+    mock_repo.create_label.side_effect = RuntimeError("forbidden")
+    llm = _FakeLabelerLLM(existing_labels=[], new_labels=[{"name": "fresh"}])
+
+    result = label_single_issue(mock_gh, llm, "owner/repo", 42, {})
+
+    assert result.action == "skipped"
+    assert result.skipped_reason == "failed to apply labels"
+    assert result.created_labels == []
+    mock_issue.add_to_labels.assert_not_called()

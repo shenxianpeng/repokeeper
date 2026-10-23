@@ -1456,3 +1456,478 @@ def test_attempt_ci_auto_fix_uses_any_workflow_file(tmp_path, monkeypatch):
         repo_path=tmp_path,
     )
     assert result is not None
+
+
+# ── Dependency checker edge cases ────────────────────────────────────────────
+
+
+def _completed(returncode=0, stdout="", stderr=""):
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def _raise_run(exc):
+    def fake_run(*args, **kwargs):
+        raise exc
+
+    return fake_run
+
+
+def test_check_python_deps_non_zero_exit_returns_empty(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(1, "[]"))
+
+    assert check_python_deps(Path("pyproject.toml")) == []
+
+
+def test_check_node_deps_up_to_date_returns_empty(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(0, ""))
+
+    assert check_node_deps(Path("package.json")) == []
+
+
+def test_check_cargo_deps_handles_empty_output_and_timeouts(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(0, "   "))
+    assert check_cargo_deps(Path("Cargo.toml")) == []
+
+    monkeypatch.setattr(subprocess, "run", _raise_run(subprocess.TimeoutExpired(cmd=[], timeout=1)))
+    assert check_cargo_deps(Path("Cargo.toml")) == []
+
+
+def test_check_bundler_deps_parses_lines_and_handles_errors(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **kw: _completed(0, "rails (7.1.0 6.1.0)\nlonely\nrake (13.0)\n")
+    )
+    deps = check_bundler_deps(Path("Gemfile"))
+    assert [(d.name, d.current, d.latest) for d in deps] == [
+        ("rails", "7.1.0", "6.1.0"),
+        ("rake", "13.0", "?"),
+    ]
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(1, ""))
+    assert check_bundler_deps(Path("Gemfile")) == []
+
+    monkeypatch.setattr(subprocess, "run", _raise_run(RuntimeError("boom")))
+    assert check_bundler_deps(Path("Gemfile")) == []
+
+
+def test_check_composer_deps_handles_bad_json_empty_output_and_errors(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(0, "not json"))
+    assert check_composer_deps(Path("composer.json")) == []
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(0, ""))
+    assert check_composer_deps(Path("composer.json")) == []
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(0, '{"installed": "x"}'))
+    assert check_composer_deps(Path("composer.json")) == []
+
+    monkeypatch.setattr(subprocess, "run", _raise_run(RuntimeError("boom")))
+    assert check_composer_deps(Path("composer.json")) == []
+
+
+def test_check_maven_deps_ignores_unmatched_lines_and_errors(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **kw: _completed(0, "[INFO] no updates here\n[INFO]   com.example:lib ... 1.0 -> 2.0\n")
+    )
+    deps = check_maven_deps(Path("pom.xml"))
+    assert [(d.name, d.current, d.latest) for d in deps] == [("com.example:lib", "1.0", "2.0")]
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(1, ""))
+    assert check_maven_deps(Path("pom.xml")) == []
+
+    monkeypatch.setattr(subprocess, "run", _raise_run(subprocess.TimeoutExpired(cmd=[], timeout=1)))
+    assert check_maven_deps(Path("pom.xml")) == []
+
+
+def test_check_gradle_deps_handles_missing_report_bad_json_and_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(0, ""))
+    assert check_gradle_deps(tmp_path / "build.gradle") == []
+
+    report_dir = tmp_path / "build" / "dependencyUpdates"
+    report_dir.mkdir(parents=True)
+    (report_dir / "report.json").write_text("not json")
+    assert check_gradle_deps(tmp_path / "build.gradle") == []
+
+    (report_dir / "report.json").write_text("[]")
+    assert check_gradle_deps(tmp_path / "build.gradle") == []
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _completed(1, ""))
+    assert check_gradle_deps(tmp_path / "build.gradle") == []
+
+    monkeypatch.setattr(subprocess, "run", _raise_run(RuntimeError("boom")))
+    assert check_gradle_deps(tmp_path / "build.gradle") == []
+
+
+def test_scan_dependencies_dispatches_every_ecosystem(tmp_path, monkeypatch):
+    from repokeeper import patrol
+
+    for name in (
+        "requirements.txt", "Pipfile", "Cargo.toml", "Gemfile",
+        "composer.json", "pom.xml", "build.gradle", "yarn.lock",
+    ):
+        (tmp_path / name).write_text("")
+    calls: list[str] = []
+
+    def record(kind):
+        def checker(manifest):
+            calls.append(f"{kind}:{manifest.name}")
+            return [DepCheck(kind, "1", "2", True)]
+
+        return checker
+
+    for func in (
+        "check_python_deps", "check_cargo_deps", "check_bundler_deps",
+        "check_composer_deps", "check_maven_deps", "check_gradle_deps",
+    ):
+        monkeypatch.setattr(patrol, func, record(func))
+
+    deps = scan_dependencies(tmp_path)
+
+    assert sorted(calls) == [
+        "check_bundler_deps:Gemfile",
+        "check_cargo_deps:Cargo.toml",
+        "check_composer_deps:composer.json",
+        "check_gradle_deps:build.gradle",
+        "check_maven_deps:pom.xml",
+        "check_python_deps:Pipfile",
+        "check_python_deps:requirements.txt",
+    ]
+    assert len(deps) == 7
+
+
+# ── CI scanning edge cases ───────────────────────────────────────────────────
+
+
+def test_scan_ci_failures_skips_workflows_without_runs():
+    workflow = MagicMock()
+    workflow.name = "Empty"
+    workflow.get_runs.return_value = []
+    mock_repo = MagicMock()
+    mock_repo.default_branch = "main"
+    mock_repo.get_workflows.return_value = [workflow]
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+
+    assert scan_ci_failures(mock_gh, "owner/repo") == []
+
+
+def test_fetch_ci_log_snippet_includes_failed_job_logs():
+    requester = MagicMock()
+    requester.requestJsonAndCheck.side_effect = [
+        (
+            {},
+            {
+                "jobs": [
+                    {
+                        "id": 11,
+                        "name": "lint",
+                        "conclusion": "success",
+                        "status": "completed",
+                        "steps": [{"name": "ruff", "conclusion": "success"}],
+                    },
+                    {
+                        "id": 12,
+                        "name": "test",
+                        "conclusion": "failure",
+                        "status": "completed",
+                        "steps": [
+                            {"name": "setup", "conclusion": "success"},
+                            {"name": "pytest", "conclusion": "failure"},
+                            {"name": "upload", "conclusion": "skipped"},
+                        ],
+                    },
+                    {
+                        "name": "no-id",
+                        "conclusion": "failure",
+                        "status": "completed",
+                        "steps": [{"name": "x", "conclusion": "failure"}],
+                    },
+                    {
+                        "id": 14,
+                        "name": "empty-log",
+                        "conclusion": "failure",
+                        "status": "completed",
+                        "steps": [{"name": "y", "conclusion": "timed_out"}],
+                    },
+                ]
+            },
+        ),
+        ({}, "E   assert 1 == 2\nFAILED tests/test_x.py"),
+        ({}, 42),
+    ]
+    mock_gh = MagicMock()
+    mock_gh._Github__requester = requester
+
+    snippet = _fetch_ci_log_snippet(mock_gh, "owner/repo", 5, "CI", "failure", "https://x")
+
+    assert "✅ Step: ruff" in snippet
+    assert "❌ Step: pytest → failure" in snippet
+    assert "⏭ Step: upload → skipped" in snippet
+    assert "--- Log for job 'test' ---" in snippet
+    assert "FAILED tests/test_x.py" in snippet
+    assert "Log for job 'empty-log'" not in snippet
+    assert requester.requestJsonAndCheck.call_count == 3
+
+
+def test_fetch_job_logs_handles_all_payload_shapes():
+    from repokeeper.patrol import _fetch_job_logs
+
+    requester = MagicMock()
+    requester.requestJsonAndCheck.return_value = ({}, "x" * 50)
+    assert _fetch_job_logs(requester, "owner/repo", 1, max_chars=30).startswith("...(truncated)...\n")
+
+    requester.requestJsonAndCheck.return_value = ({}, {"message": "wrapped"})
+    assert _fetch_job_logs(requester, "owner/repo", 1) == "wrapped"
+
+    requester.requestJsonAndCheck.return_value = ({}, {"other": 1})
+    assert _fetch_job_logs(requester, "owner/repo", 1) == "{'other': 1}"
+
+    requester.requestJsonAndCheck.return_value = ({}, 42)
+    assert _fetch_job_logs(requester, "owner/repo", 1) == ""
+
+    requester.requestJsonAndCheck.side_effect = RuntimeError("boom")
+    assert _fetch_job_logs(requester, "owner/repo", 1) == ""
+
+
+# ── Stale issue edge cases ───────────────────────────────────────────────────
+
+
+def _stale_issue_mock(number):
+    from datetime import timedelta, timezone
+
+    issue = MagicMock()
+    issue.pull_request = None
+    issue.number = number
+    issue.title = f"Issue {number}"
+    issue.html_url = f"https://github.com/owner/repo/issues/{number}"
+    issue.user.login = "alice"
+    issue.created_at = datetime.now(timezone.utc) - timedelta(days=400)
+    issue.updated_at = datetime.now(timezone.utc) - timedelta(days=200)
+    issue.labels = []
+    return issue
+
+
+def test_scan_stale_issues_respects_max_issues():
+    mock_repo = MagicMock()
+    mock_repo.get_issues.return_value = [_stale_issue_mock(1), _stale_issue_mock(2)]
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+
+    stale = scan_stale_issues(mock_gh, "owner/repo", stale_days=90, max_issues=1)
+
+    assert [i.number for i in stale] == [1]
+
+
+def _stale(number=1, days=120, action="implement"):
+    return StaleIssue(
+        number=number,
+        title="Old",
+        url=f"https://github.com/owner/repo/issues/{number}",
+        author="alice",
+        created_at=datetime(2025, 1, 1),
+        last_updated=datetime(2025, 6, 1),
+        days_stale=days,
+        suggested_action=action,
+        summary="summary",
+    )
+
+
+def test_publish_stale_issue_candidate_skips_existing_marker_and_handles_errors():
+    from repokeeper.patrol import _patrol_candidate_marker
+
+    unrelated = MagicMock()
+    unrelated.body = None
+    existing = MagicMock()
+    existing.body = f"old comment {_patrol_candidate_marker(1)}"
+    issue_obj = MagicMock()
+    issue_obj.get_comments.return_value = [unrelated, existing]
+    mock_repo = MagicMock()
+    mock_repo.get_issue.return_value = issue_obj
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+
+    assert publish_stale_issue_candidate(mock_gh, "owner/repo", _stale()) is False
+    issue_obj.create_comment.assert_not_called()
+
+    mock_gh.get_repo.side_effect = RuntimeError("boom")
+    assert publish_stale_issue_candidate(mock_gh, "owner/repo", _stale()) is False
+
+
+# ── Health scoring and summary ───────────────────────────────────────────────
+
+
+def test_calculate_health_ignores_low_severity_and_fresh_issues():
+    report = PatrolReport(
+        repo="owner/repo",
+        scanned_at=datetime(2026, 1, 1),
+        outdated_deps=[DepCheck("x", "1", "2", True, severity="low")],
+        stale_issues=[_stale(days=10)],
+    )
+
+    assert calculate_health(report) == 100
+
+
+def test_health_label_thresholds():
+    from repokeeper.patrol import _health_label
+
+    assert _health_label(95) == "🟢 Healthy"
+    assert _health_label(75) == "🟡 Needs Attention"
+    assert _health_label(55) == "🟠 At Risk"
+    assert _health_label(10) == "🔴 Critical"
+
+
+def test_generate_health_summary_lists_review_items():
+    report = PatrolReport(
+        repo="owner/repo",
+        scanned_at=datetime(2026, 1, 1, 9, 0),
+        outdated_deps=[DepCheck("requests", "1", "2", True, severity="medium")],
+        ci_failures=[
+            CIFailure("Fixable", 1, "https://r/1", datetime(2026, 1, 1), "failure",
+                      diagnosis="d", suggested_fix="pin version", auto_fixable=True),
+            CIFailure("Manual", 2, "https://r/2", datetime(2026, 1, 1), "failure", diagnosis="d"),
+        ],
+        stale_issues=[_stale(number=3, action="implement"), _stale(number=4, action="close")],
+    )
+
+    summary = generate_health_summary(report, {})
+
+    assert "- **Suggested Fix:** pin version" in summary
+    assert "- **Auto-fixable:** ✅ Yes" in summary
+    assert "## 🔔 Items for Review" in summary
+    assert "- Review dependency `requests` upgrade (medium)." in summary
+    assert "- Approve implementation for CI failure `Fixable`." in summary
+    assert "- Investigate CI failure `Manual`." in summary
+    assert "- Approve implementation for [#3 Old](https://github.com/owner/repo/issues/3)." in summary
+    assert "[#4 Old]" in summary.split("## 🔔 Items for Review")[0]
+    assert "Approve implementation for [#4" not in summary
+
+
+# ── CI auto-fix edge cases ───────────────────────────────────────────────────
+
+
+def test_attempt_ci_auto_fix_skips_unreadable_workflow_files(tmp_path, monkeypatch):
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "a.yml").write_text("name: Other")
+    (workflows_dir / "b.yml").write_text("name: Another")
+    real_read_text = Path.read_text
+    failed_reads: list[str] = []
+
+    def flaky_read_text(self, *args, **kwargs):
+        # The first read of a.yml fails (as if the file vanished mid-scan); later reads work.
+        if self.name == "a.yml" and not failed_reads:
+            failed_reads.append(self.name)
+            raise OSError("unreadable")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+    llm = MagicMock()
+    llm.chat.return_value = type("R", (), {"content": json.dumps({"skip": True, "reason": "no"})})()
+    failure = CIFailure("CI", 1, "https://x", datetime(2026, 1, 1), "failure")
+
+    assert attempt_ci_auto_fix(failure, llm, MagicMock(), "owner/repo", {}, repo_path=tmp_path) is None
+    assert failed_reads == ["a.yml"]
+    # No file names the workflow, so the first discovered file is sent to the LLM.
+    assert llm.chat.call_count == 1
+
+
+def test_attempt_ci_auto_fix_without_token_and_handles_exceptions(tmp_path, monkeypatch):
+    import subprocess as sp
+
+    sp.run(["git", "init", "-b", "main", str(tmp_path)], capture_output=True, check=True)
+    sp.run(["git", "-C", str(tmp_path), "config", "user.email", "test@test.test"], check=True)
+    sp.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True)
+    workflows_dir = tmp_path / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "ci.yml").write_text("name: CI\non: push")
+    sp.run(["git", "-C", str(tmp_path), "add", "-A"], capture_output=True)
+    sp.run(["git", "-C", str(tmp_path), "commit", "-m", "init"], capture_output=True)
+
+    llm = MagicMock()
+    llm.chat.return_value = type("R", (), {"content": json.dumps({
+        "skip": False,
+        "commit_message": "ci: fix",
+        "changes": {".github/workflows/ci.yml": "name: CI\non: [push]"},
+    })})()
+    mock_repo = MagicMock()
+    mock_repo.default_branch = "main"
+    mock_repo.create_pull.return_value = MagicMock(html_url="https://github.com/owner/repo/pull/1")
+    mock_gh = MagicMock()
+    mock_gh._Github__requester = MagicMock(auth=None)
+    mock_gh.get_repo.return_value = mock_repo
+
+    import repokeeper.patrol as patrol
+
+    real_git = patrol.git
+    git_calls: list[tuple[str, ...]] = []
+
+    def fake_git(*args, **kwargs):
+        git_calls.append(args)
+        if args[0] == "push":
+            return sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        return real_git(*args, **kwargs)
+
+    monkeypatch.setattr(patrol, "git", fake_git)
+    failure = CIFailure("CI", 7, "https://x", datetime(2026, 1, 1), "failure", diagnosis="d")
+
+    result = attempt_ci_auto_fix(failure, llm, mock_gh, "owner/repo", {}, repo_path=tmp_path)
+
+    assert result == "Fixed CI: https://github.com/owner/repo/pull/1"
+    assert not any(call[:2] == ("remote", "set-url") for call in git_calls)
+
+    mock_gh.get_repo.side_effect = RuntimeError("github down")
+    assert attempt_ci_auto_fix(failure, llm, mock_gh, "owner/repo", {}, repo_path=tmp_path) is None
+
+
+# ── run_patrol branches ──────────────────────────────────────────────────────
+
+
+def test_run_patrol_loads_profile_when_missing(monkeypatch):
+    monkeypatch.setattr(
+        "repokeeper.patrol.load_profile", lambda: {"patrol": {"enabled": False}}
+    )
+
+    report = run_patrol(MagicMock(), MagicMock(), "owner/repo")
+
+    assert report.outdated_deps == []
+    assert report.health_score == 100
+
+
+def test_run_patrol_records_auto_fix_outcomes(monkeypatch):
+    from datetime import timezone
+
+    outdated = [DepCheck("requests", "1", "2", True, severity="medium")]
+    monkeypatch.setattr("repokeeper.patrol.scan_dependencies", lambda *a, **kw: outdated)
+    monkeypatch.setattr("repokeeper.patrol.find_manifests", lambda *a, **kw: [Path("pyproject.toml")])
+    failures = [
+        CIFailure("Fixed", 1, "https://r/1", datetime.now(timezone.utc), "failure"),
+        CIFailure("NotFixed", 2, "https://r/2", datetime.now(timezone.utc), "failure"),
+    ]
+    monkeypatch.setattr("repokeeper.patrol.scan_ci_failures", lambda *a, **kw: failures)
+
+    def fake_diagnose(failure, *args, **kwargs):
+        failure.auto_fixable = True
+        return failure
+
+    monkeypatch.setattr("repokeeper.patrol.diagnose_ci_failure", fake_diagnose)
+    monkeypatch.setattr(
+        "repokeeper.patrol.attempt_ci_auto_fix",
+        lambda failure, *a, **kw: "Fixed Fixed: url" if failure.workflow_name == "Fixed" else None,
+    )
+    stale = [_stale(number=9, action="close")]
+    monkeypatch.setattr("repokeeper.patrol.scan_stale_issues", lambda *a, **kw: stale)
+    monkeypatch.setattr("repokeeper.patrol.summarize_stale_issue", lambda issue, *a, **kw: issue)
+    published: list[int] = []
+    monkeypatch.setattr(
+        "repokeeper.patrol.publish_stale_issue_candidate",
+        lambda gh, repo, issue: published.append(issue.number) or True,
+    )
+
+    report = run_patrol(MagicMock(), MagicMock(), "owner/repo", profile={"patrol": {}})
+
+    assert report.dependencies_checked == 1
+    assert report.ci_fixed == [
+        "Fixed Fixed: url",
+        "Diagnosed but not auto-fixed: NotFixed (run 2)",
+    ]
+    assert report.stale_issues == stale
+    assert published == []
+    assert report.health_score == 100 - 2 - 10 - 3

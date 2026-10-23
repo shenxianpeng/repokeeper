@@ -3180,3 +3180,735 @@ def test_run_agent_detects_pr_context_and_runs_fix(monkeypatch):
     )
     assert result["fix_applied"] is True
     assert "pr_url" in result
+
+
+# ── strip_blocked_paths edge cases ──────────────────────────────────────────
+
+
+def test_strip_blocked_paths_tolerates_malformed_sections_and_safe_patch():
+    impl = {
+        "changes": "not-a-dict",
+        "edits": {"path": ".github/workflows/ci.yml"},
+        "patch": "--- a/src/app.py\n+++ b/src/app.py\n",
+    }
+
+    assert strip_blocked_paths(impl) == []
+    assert impl["patch"].startswith("--- a/src/app.py")
+    assert impl["edits"] == {"path": ".github/workflows/ci.yml"}
+
+
+# ── smart_select_files branches ─────────────────────────────────────────────
+
+
+def _selection_llm(files):
+    class Response:
+        content = json.dumps({"files": files, "reasoning": "because"})
+        usage = TokenUsage(prompt_tokens=5, completion_tokens=2, total_tokens=7)
+
+    class Client:
+        def chat(self, **kwargs):
+            return Response()
+
+    return Client()
+
+
+def test_smart_select_files_without_context_expansion(monkeypatch):
+    monkeypatch.setattr(agent, "list_repo_files", lambda: [{"path": "a.py", "size": 3}])
+    calls = {}
+
+    def fake_collect_specific(paths, max_files=None, target_tokens=None):
+        calls["paths"] = paths
+        return {"a.py": "code"}
+
+    monkeypatch.setattr(agent, "collect_specific_files", fake_collect_specific)
+    monkeypatch.setattr(
+        agent, "expand_context_paths", lambda *a, **kw: pytest.fail("expansion must be off")
+    )
+
+    files, usage = smart_select_files(
+        {"number": 1, "title": "t", "body": "b"},
+        {"agent": {"context_expansion": False}},
+        _selection_llm(["a.py"]),
+    )
+
+    assert files == {"a.py": "code"}
+    assert calls["paths"] == ["a.py"]
+    assert usage.total_tokens == 7
+
+
+def test_smart_select_files_falls_back_when_nothing_readable(monkeypatch):
+    monkeypatch.setattr(agent, "list_repo_files", lambda: [{"path": "a.py", "size": 3}])
+    monkeypatch.setattr(agent, "expand_context_paths", lambda *a, **kw: {})
+    monkeypatch.setattr(
+        agent, "collect_repo_files", lambda max_files=60, target_tokens=None: {"fallback.py": "x"}
+    )
+
+    files, _usage = smart_select_files(
+        {"number": 1, "title": "t", "body": "b"}, {}, _selection_llm(["a.py"])
+    )
+
+    assert files == {"fallback.py": "x"}
+
+
+# ── verification_fix_loop with verification disabled ────────────────────────
+
+
+def test_verification_fix_loop_negative_attempts_skips_verification(monkeypatch):
+    monkeypatch.setattr(
+        agent, "run_verification_commands",
+        lambda *a, **kw: pytest.fail("verification must not run"),
+    )
+    plan = {"summary": "x"}
+
+    result, usage, failures = verification_fix_loop(
+        plan, {"number": 1, "title": "t"}, {"agent": {"max_fix_attempts": -1}}, MagicMock()
+    )
+
+    assert result is plan
+    assert failures == []
+    assert usage.total_tokens == 0
+
+
+# ── Pi backend helpers ──────────────────────────────────────────────────────
+
+
+def test_build_pi_prompt_includes_preferences_and_discussion():
+    prompt = agent._build_pi_prompt(
+        {
+            "number": 7,
+            "title": "Add thing",
+            "body": "Please add",
+            "comments": [{"author": "alice", "body": "+1"}, {"body": "me too"}],
+        },
+        {
+            "style": {"code_style": "PEP8"},
+            "tech": {"preferred": ["python"], "avoid": ["perl"]},
+        },
+    )
+
+    assert "## Issue #7: Add thing" in prompt
+    assert "- Code style: PEP8" in prompt
+    assert "- Preferred tech stack: python" in prompt
+    assert "- Tech stack to avoid: perl" in prompt
+    assert "@alice: +1\n@?: me too" in prompt
+
+    bare = agent._build_pi_prompt({"number": 1, "title": "t", "body": "b"}, {})
+    assert "(no recent discussion)" in bare
+    assert "follow existing patterns" in bare
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("deepseek-chat", "deepseek/deepseek-chat"),
+        ("gpt-4o", "openai/gpt-4o"),
+        ("anthropic/claude", "anthropic/claude"),
+        ("custom-model", "deepseek/custom-model"),
+    ],
+)
+def test_pi_model_arg(model, expected):
+    assert agent._pi_model_arg(model) == expected
+
+
+def test_run_pi_writes_prompt_file_and_cleans_up(tmp_path, monkeypatch):
+    import subprocess as subprocess_module
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        prompt_file = tmp_path / ".repokeeper-pi-prompt.md"
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        captured["prompt"] = prompt_file.read_text(encoding="utf-8")
+        return subprocess_module.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(agent.subprocess, "run", fake_run)
+
+    result = agent._run_pi("do the thing", "gpt-4o", "secret", workdir=tmp_path, timeout=5)
+
+    assert result.stdout == "ok"
+    assert captured["prompt"] == "do the thing"
+    assert captured["cmd"][:5] == ["pi", "--provider", "openai", "--model", "openai/gpt-4o"]
+    assert captured["cmd"][-1] == f"@{tmp_path / '.repokeeper-pi-prompt.md'}"
+    assert captured["kwargs"]["cwd"] == str(tmp_path)
+    assert captured["kwargs"]["timeout"] == 5
+    assert captured["kwargs"]["env"]["DEEPSEEK_API_KEY"] == "secret"
+    assert captured["kwargs"]["env"]["OPENAI_API_KEY"] == "secret"
+    assert not (tmp_path / ".repokeeper-pi-prompt.md").exists()
+
+
+def test_parse_pi_result_strategies():
+    inline = agent._parse_pi_result('did work {"success": true, "summary": "done", "commit_message": "feat: x"} bye')
+    assert inline["skip"] is False
+    assert inline["summary"] == "done"
+    assert inline["commit_message"] == "feat: x"
+
+    fenced = agent._parse_pi_result('text\n```json\n{"success": false, "reason": "too hard"}\n```\n')
+    assert fenced["skip"] is True
+    assert fenced["reason"] == "too hard"
+
+    line = agent._parse_pi_result('{"success": true, "nested": {"a": 1}}\nnoise\n{"success": true}')
+    assert line["skip"] is False
+    assert line["summary"] == "Pi made changes."
+
+    fallback = agent._parse_pi_result("no json here\n{\"success\": true, broken\n")
+    assert fallback["skip"] is False
+    assert fallback["summary"] == "Pi made changes (no JSON confirmation)."
+    assert fallback["commit_message"] == "fix: changes from Pi"
+
+
+def test_parse_pi_result_skips_invalid_json_candidates():
+    stdout = (
+        '{"success": true, "summary": unquoted}\n'
+        "```json\n{\"success\": true, \"summary\": broken}\n```\n"
+    )
+
+    result = agent._parse_pi_result(stdout)
+
+    assert result["summary"] == "Pi made changes (no JSON confirmation)."
+
+
+# ── _get_pr_fix_context ─────────────────────────────────────────────────────
+
+
+def _comment(login, body):
+    comment = MagicMock()
+    comment.user = MagicMock(login=login) if login else None
+    comment.body = body
+    return comment
+
+
+def test_get_pr_fix_context_labels_bot_and_reviewer_comments(monkeypatch):
+    import repokeeper.review as review_module
+
+    monkeypatch.setattr(review_module, "get_pr_data", lambda repo, num: {"number": num})
+    monkeypatch.setattr(
+        review_module, "build_review_context_string", lambda pr_data, files: "DIFF CONTEXT"
+    )
+    monkeypatch.setattr(agent, "collect_repo_files", lambda max_files=60: {"a.py": "code"})
+    pr_obj = MagicMock()
+    pr_obj._repo = MagicMock()
+    pr_obj.get_issue_comments.return_value = [
+        _comment("alice", "please rename"),
+        _comment("repokeeper[bot]", "tried once"),
+        _comment(None, "anonymous"),
+    ]
+
+    context, usage, files = agent._get_pr_fix_context(pr_obj, 5, {"agent": {"model": "m"}}, MagicMock())
+
+    assert context.startswith("## PR Conversation History")
+    assert "**@alice (reviewer feedback):** please rename" in context
+    assert "**🤖 RepoKeeper (previous fix attempt):** tried once" in context
+    assert "**@unknown (reviewer feedback):** anonymous" in context
+    assert context.endswith("DIFF CONTEXT")
+    assert files == {"a.py": "code"}
+    assert usage.model == "m"
+    assert usage.total_tokens == usage.prompt_tokens == estimate_tokens(files)
+
+
+def test_get_pr_fix_context_without_comments_uses_head_repo(monkeypatch):
+    import repokeeper.review as review_module
+
+    seen = {}
+    monkeypatch.setattr(
+        review_module, "get_pr_data", lambda repo, num: seen.update(repo=repo) or {"number": num}
+    )
+    monkeypatch.setattr(review_module, "build_review_context_string", lambda pr_data, files: "CTX")
+    monkeypatch.setattr(agent, "collect_repo_files", lambda max_files=60: {})
+    pr_obj = MagicMock(spec=["head", "get_issue_comments"])
+    pr_obj.head.repo = "head-repo"
+    pr_obj.get_issue_comments.return_value = []
+
+    context, _usage, _files = agent._get_pr_fix_context(pr_obj, 5, {}, MagicMock())
+
+    assert context == "CTX"
+    assert seen["repo"] == "head-repo"
+
+
+def test_call_llm_for_fix_exhausts_retries():
+    class Response:
+        content = "not json"
+        usage = TokenUsage()
+
+    class Client:
+        calls = 0
+
+        def chat(self, **kwargs):
+            Client.calls += 1
+            return Response()
+
+    with pytest.raises(LLMParseError, match="after 3 attempts"):
+        agent._call_llm_for_fix("ctx", {}, Client())
+
+    assert Client.calls == 3
+
+
+# ── run_fix_pr branches ─────────────────────────────────────────────────────
+
+
+def _fix_pr_setup(monkeypatch, *, context="ctx"):
+    monkeypatch.setattr(agent, "logger", MagicMock())
+    pr_obj = MagicMock()
+    pr_obj.title = "PR"
+    pr_obj.head.ref = "feature"
+    pr_obj.user = None
+    pr_obj.html_url = "https://github.com/owner/repo/pull/9"
+    repo_mock = MagicMock()
+    repo_mock.get_pull.return_value = pr_obj
+    repo_mock.html_url = "https://github.com/owner/repo"
+    monkeypatch.setattr(agent, "_get_pr_fix_context", lambda *a: (context, TokenUsage(), {}))
+    return pr_obj, repo_mock
+
+
+def _git_stub(monkeypatch, diff_output):
+    import subprocess as subprocess_module
+
+    calls: list[tuple[str, ...]] = []
+
+    def fake_git(*args, **kwargs):
+        calls.append(args)
+        stdout = diff_output if args[0] == "diff" else ""
+        return subprocess_module.CompletedProcess(["git", *args], 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(agent, "_git", fake_git)
+    return calls
+
+
+def _pi_process(returncode=0, stdout="", stderr=""):
+    import subprocess as subprocess_module
+
+    return subprocess_module.CompletedProcess(["pi"], returncode, stdout=stdout, stderr=stderr)
+
+
+def test_run_fix_pr_pi_backend_crash_without_changes(monkeypatch):
+    pr_obj, repo_mock = _fix_pr_setup(monkeypatch)
+    git_calls = _git_stub(monkeypatch, "")
+    monkeypatch.setattr(agent, "_run_pi", lambda *a, **kw: _pi_process(2, "", ""))
+
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {"agent": {"backend": "pi"}})
+
+    assert result == {"skip": True, "reason": "Pi crashed (exit 2)"}
+    assert git_calls[0][:2] == ("fetch", "origin")
+    assert git_calls[1] == ("checkout", "-b", "repokeeper-fix-9", "origin/pr/9")
+    assert "(no stderr output)" in pr_obj.create_issue_comment.call_args[0][0]
+
+
+def test_run_fix_pr_pi_backend_skip_and_no_changes(monkeypatch):
+    pr_obj, repo_mock = _fix_pr_setup(monkeypatch)
+    _git_stub(monkeypatch, "")
+    monkeypatch.setattr(
+        agent, "_run_pi",
+        lambda *a, **kw: _pi_process(1, '{"success": false, "reason": "unclear"}', "warn"),
+    )
+
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {"agent": {"backend": "pi"}})
+    assert result == {"skip": True, "reason": "Pi crashed (exit 1)"}
+    assert "warn" in pr_obj.create_issue_comment.call_args[0][0]
+
+    monkeypatch.setattr(
+        agent, "_run_pi", lambda *a, **kw: _pi_process(0, '{"success": false, "reason": "unclear"}')
+    )
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {"agent": {"backend": "pi"}})
+    assert result == {"skip": True, "reason": "unclear"}
+
+    monkeypatch.setattr(agent, "_run_pi", lambda *a, **kw: _pi_process(0, '{"success": true}'))
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {"agent": {"backend": "pi"}})
+    assert result == {"skip": True, "reason": "No file changes produced by Pi"}
+    assert '{"success": true}' in pr_obj.create_issue_comment.call_args[0][0]
+
+    monkeypatch.setattr(agent, "_run_pi", lambda *a, **kw: _pi_process(0, "   "))
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {"agent": {"backend": "pi"}})
+    assert result["skip"] is True
+    assert "(no output)" in pr_obj.create_issue_comment.call_args[0][0]
+
+
+def test_run_fix_pr_pi_backend_pushes_changes(monkeypatch):
+    pr_obj, repo_mock = _fix_pr_setup(monkeypatch)
+    _git_stub(monkeypatch, "a.py\nb.py\n")
+    monkeypatch.setattr(
+        agent, "_run_pi",
+        lambda *a, **kw: _pi_process(0, '{"success": true, "summary": "fixed", "commit_message": "fix: it"}'),
+    )
+    pushed = {}
+
+    def fake_fix_and_push(result, token, repository, head_branch, pr_number, already_checked_out=False):
+        pushed.update(result=result, head_branch=head_branch, already_checked_out=already_checked_out)
+        return head_branch, ["a.py", "b.py"]
+
+    monkeypatch.setattr(agent, "fix_and_push", fake_fix_and_push)
+
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {"agent": {"backend": "pi"}})
+
+    assert result == {"skip": False, "pr_url": pr_obj.html_url, "fix_applied": True}
+    assert pushed["head_branch"] == "feature"
+    assert pushed["already_checked_out"] is True
+    assert pushed["result"]["branch_name"] == "feature"
+    comment = pr_obj.create_issue_comment.call_args[0][0]
+    assert "**Summary:** fixed" in comment
+    assert "`a.py`, `b.py`" in comment
+
+
+def test_run_fix_pr_native_strips_blocked_paths_and_reports_validation(monkeypatch):
+    pr_obj, repo_mock = _fix_pr_setup(monkeypatch)
+    plan = {
+        "skip": False,
+        "summary": "s",
+        "commit_message": "fix: x",
+        "changes": {".github/workflows/ci.yml": "x", **{f"f{i}.py": "x" for i in range(20)}},
+        "new_files": {},
+        "edits": [],
+        "patch": "",
+    }
+    monkeypatch.setattr(agent, "_call_llm_for_fix", lambda *a: (plan, TokenUsage()))
+
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {"pr": {"max_files_per_pr": 5}})
+
+    assert result["skip"] is True
+    assert "Implementation touches 20 files (max: 5)" in result["reason"]
+    assert ".github/workflows/ci.yml" not in plan["changes"]
+    assert "fix validation failed" in pr_obj.create_issue_comment.call_args[0][0]
+
+
+def test_run_fix_pr_native_without_cost_note(monkeypatch):
+    pr_obj, repo_mock = _fix_pr_setup(monkeypatch)
+    plan = {"skip": False, "summary": "s", "commit_message": "fix: x", "changes": {"a.py": "x"}}
+    monkeypatch.setattr(agent, "_call_llm_for_fix", lambda *a: (plan, TokenUsage()))
+    monkeypatch.setattr(agent, "apply_implementation_changes", lambda imp, repo_root=".": ["a.py"])
+    monkeypatch.setattr(agent, "fix_and_push", lambda *a, **kw: ("feature", []))
+
+    result = agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {})
+
+    assert result["fix_applied"] is True
+    comment = pr_obj.create_issue_comment.call_args[0][0]
+    assert "Estimated cost" not in comment
+    assert "**Changed files:** (none)" in comment
+
+
+def test_run_fix_pr_reports_and_reraises_errors(monkeypatch):
+    pr_obj, repo_mock = _fix_pr_setup(monkeypatch)
+
+    def boom(*a):
+        raise RuntimeError("llm exploded")
+
+    monkeypatch.setattr(agent, "_call_llm_for_fix", boom)
+
+    with pytest.raises(RuntimeError, match="llm exploded"):
+        agent.run_fix_pr("tk", "owner/repo", 9, MagicMock(), repo_mock, {})
+
+    comment = pr_obj.create_issue_comment.call_args[0][0]
+    assert "fix encountered an error" in comment
+    assert "https://github.com/owner/repo/actions" in comment
+
+
+# ── create_pr body details ──────────────────────────────────────────────────
+
+
+def _pr_repo():
+    repo = MagicMock()
+    repo.default_branch = "main"
+    repo.create_pull.return_value = MagicMock(html_url="https://github.com/owner/repo/pull/1")
+    return repo
+
+
+def test_create_pr_body_notes_cost_context_and_risk():
+    repo = _pr_repo()
+    files = [f"src/f{i}.py" for i in range(6)] + ["tests/test_f.py"]
+
+    create_pr(
+        repo, {"number": 1, "title": "T"}, {"summary": "s", "commit_message": "feat: x"},
+        "repokeeper/x", files, {},
+        usage=TokenUsage(total_tokens=10, cost_usd=0.0, model=""),
+        context_file_count=3,
+    )
+
+    body = repo.create_pull.call_args.kwargs["body"]
+    assert "- LLM usage: 10 tokens\n" in body
+    assert "- Context: 3 files\n" in body
+    assert "- Estimated risk: **medium**" in body
+    assert "- Test coverage touched: `tests/test_f.py`" in body
+
+
+def test_create_pr_body_flags_high_risk_paths():
+    repo = _pr_repo()
+
+    create_pr(
+        repo, {"number": 1}, {"summary": "s", "commit_message": "feat: x"},
+        "repokeeper/x", ["auth/login.py"], {},
+    )
+
+    body = repo.create_pull.call_args.kwargs["body"]
+    assert "- Estimated risk: **high**" in body
+    assert "- LLM usage: Not available." in body
+    assert "- Context: Not recorded." in body
+    assert "No test files changed." in body
+
+
+# ── find_similar_issues over-fetch guard ────────────────────────────────────
+
+
+def test_find_similar_issues_stops_after_over_fetching():
+    def issue(number):
+        obj = MagicMock()
+        obj.pull_request = None
+        obj.number = number
+        obj.title = "crash on startup every time"
+        obj.body = ""
+        obj.html_url = f"https://x/{number}"
+        obj.state = "open"
+        obj.created_at = "2026-01-01"
+        obj.user = None
+        return obj
+
+    repo = MagicMock()
+    repo.get_issues.return_value = [issue(n) for n in range(2, 10)]
+
+    similar = agent.find_similar_issues(
+        repo, {"number": 1, "title": "crash on startup every time"}, max_results=1
+    )
+
+    assert [s["number"] for s in similar] == [2]
+    assert similar[0]["author"] == "unknown"
+
+
+# ── run_agent branches ──────────────────────────────────────────────────────
+
+
+def _run_agent_env(monkeypatch, agent_cfg, *, pr_body="Closes #1"):
+    profile = {"agent": {"implement": True, "similar_issue_check": False, **agent_cfg}, "style": {}}
+    monkeypatch.setattr(agent, "load_profile", lambda profile_path=None: profile)
+    monkeypatch.delenv("PR_NUMBER", raising=False)
+    issue_obj = MagicMock()
+    pr_obj = MagicMock()
+    pr_obj.body = pr_body
+    repo_mock = MagicMock()
+    repo_mock.get_issue.return_value = issue_obj
+    repo_mock.get_pull.return_value = pr_obj
+    repo_mock.html_url = "https://github.com/owner/repo"
+    repo_mock.get_branches.return_value = []
+    gh_mock = MagicMock()
+    gh_mock.get_repo.return_value = repo_mock
+    monkeypatch.setattr(agent, "Github", lambda token: gh_mock)
+    monkeypatch.setattr(agent, "LLMClient", lambda **kw: MagicMock(api_key="key"))
+    monkeypatch.setattr(
+        agent, "get_issue_data",
+        lambda repo, num: {"number": num, "title": "add feature", "body": "body", "comments": []},
+    )
+    return issue_obj, repo_mock, pr_obj
+
+
+def test_run_agent_pr_context_without_linked_issue(monkeypatch):
+    _issue_obj, _repo, _pr = _run_agent_env(monkeypatch, {}, pr_body="no link here")
+    seen = {}
+    monkeypatch.setattr(
+        agent, "run_fix_pr",
+        lambda token, repo, pr_number, llm, repo_obj, profile: seen.update(pr=pr_number) or {"skip": False},
+    )
+
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=42, pr_number=42, llm_api_key="key")
+
+    assert result == {"skip": False}
+    assert seen == {"pr": 42}
+
+
+@pytest.mark.parametrize("pr_body", ["Closes #1", "no link"])
+def test_run_agent_explicit_pr_number_when_issue_is_not_a_pull(monkeypatch, pr_body):
+    issue_obj, repo_mock, pr_obj = _run_agent_env(monkeypatch, {}, pr_body=pr_body)
+
+    def get_pull(number):
+        if number == 5:
+            raise RuntimeError("not a pull request")
+        return pr_obj
+
+    repo_mock.get_pull.side_effect = get_pull
+    seen = {}
+    monkeypatch.setattr(
+        agent, "run_fix_pr",
+        lambda token, repo, pr_number, llm, repo_obj, profile: seen.update(pr=pr_number) or {"skip": False},
+    )
+
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=5, pr_number=7, llm_api_key="key")
+
+    assert result == {"skip": False}
+    assert seen == {"pr": 7}
+
+
+def test_run_agent_falls_back_to_issue_mode_when_pull_lookups_fail(monkeypatch):
+    issue_obj, repo_mock, _pr = _run_agent_env(monkeypatch, {"skip_keywords": ["feature"]})
+    repo_mock.get_pull.side_effect = RuntimeError("no pulls")
+
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=5, pr_number=7, llm_api_key="key")
+
+    assert result["skip"] is True
+    assert result["reason"] == "Skip keyword: feature"
+    issue_obj.create_comment.assert_called_once()
+
+
+def _native_plan():
+    return {
+        "skip": False,
+        "summary": "added",
+        "branch_name": "repokeeper/issue-1-x",
+        "commit_message": "feat: x",
+        "changes": {"a.py": "new"},
+        "new_files": {},
+        "edits": [],
+        "patch": "",
+    }
+
+
+def test_run_agent_smart_selection_and_cost_note(monkeypatch):
+    issue_obj, repo_mock, _pr = _run_agent_env(monkeypatch, {"max_fix_attempts": -1})
+    monkeypatch.setattr(
+        agent, "smart_select_files",
+        lambda issue, profile, llm: ({"a.py": "code"}, TokenUsage(prompt_tokens=3, total_tokens=3, cost_usd=0.001)),
+    )
+    monkeypatch.setattr(
+        agent, "call_llm",
+        lambda *a, **kw: (_native_plan(), TokenUsage(total_tokens=5, cost_usd=0.002, model="m")),
+    )
+    monkeypatch.setattr(agent, "apply_implementation_changes", lambda imp, repo_root=".": ["a.py"])
+    monkeypatch.setattr(agent, "apply_and_push", lambda *a, **kw: ("repokeeper/issue-1-x", ["a.py"]))
+    monkeypatch.setattr(agent, "create_pr", lambda *a, **kw: "https://github.com/owner/repo/pull/1")
+
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+
+    assert result == {"skip": False, "reason": "", "pr_url": "https://github.com/owner/repo/pull/1"}
+    final_comment = issue_obj.create_comment.call_args[0][0]
+    assert "**Estimated cost:** ~$0.003000 (8 tokens, deepseek-chat)" in final_comment
+
+
+def test_run_agent_reports_verification_failures(monkeypatch):
+    issue_obj, _repo, _pr = _run_agent_env(monkeypatch, {"smart_file_selection": False, "max_fix_attempts": 1})
+    monkeypatch.setattr(agent, "collect_repo_files", lambda **kw: {"a.py": "code"})
+    monkeypatch.setattr(agent, "call_llm", lambda *a, **kw: (_native_plan(), TokenUsage()))
+    monkeypatch.setattr(agent, "apply_implementation_changes", lambda imp, repo_root=".": ["a.py"])
+    monkeypatch.setattr(
+        agent, "verification_fix_loop",
+        lambda result, issue, profile, llm: (result, TokenUsage(), ["first failure", "ruff exploded"]),
+    )
+    monkeypatch.setattr(agent, "apply_and_push", lambda *a, **kw: pytest.fail("must not push"))
+
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+
+    assert result == {"skip": True, "reason": "Verification failed after 2 attempt(s)", "pr_url": None}
+    comment = issue_obj.create_comment.call_args[0][0]
+    assert "verification failed after 2 attempt(s)" in comment
+    assert "ruff exploded" in comment
+
+
+def _pi_agent_env(monkeypatch, pi_process, diff_output, untracked=""):
+    issue_obj, repo_mock, _pr = _run_agent_env(
+        monkeypatch, {"backend": "pi", "smart_file_selection": False, "model": "gpt-4o"}
+    )
+    monkeypatch.setattr(agent, "collect_repo_files", lambda **kw: {"a.py": "code"})
+    import subprocess as subprocess_module
+
+    def fake_git(*args, **kwargs):
+        stdout = {"ls-files": untracked, "diff": diff_output}.get(args[0], "")
+        return subprocess_module.CompletedProcess(["git", *args], 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(agent, "_git", fake_git)
+    run_pi_calls = {}
+    monkeypatch.setattr(
+        agent, "_run_pi", lambda prompt, model, api_key: run_pi_calls.update(model=model) or pi_process
+    )
+    return issue_obj, repo_mock, run_pi_calls
+
+
+def test_run_agent_pi_backend_crash_skip_and_no_changes(monkeypatch):
+    issue_obj, _repo, calls = _pi_agent_env(monkeypatch, _pi_process(3, "", "boom"), "", untracked="junk.txt")
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+    assert result == {"skip": True, "reason": "Pi crashed (exit 3)", "pr_url": None}
+    assert "boom" in issue_obj.create_comment.call_args[0][0]
+    assert calls["model"] == "gpt-4o"
+
+    issue_obj, _repo, _calls = _pi_agent_env(monkeypatch, _pi_process(2, "", ""), "")
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+    assert "(no stderr output)" in issue_obj.create_comment.call_args[0][0]
+
+    issue_obj, _repo, _calls = _pi_agent_env(
+        monkeypatch, _pi_process(0, '{"success": false, "reason": "too vague"}'), ""
+    )
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+    assert result == {"skip": True, "reason": "too vague", "pr_url": None}
+
+    issue_obj, _repo, _calls = _pi_agent_env(monkeypatch, _pi_process(0, '{"success": true}'), "")
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+    assert result == {"skip": True, "reason": "No file changes produced by Pi", "pr_url": None}
+    assert '{"success": true}' in issue_obj.create_comment.call_args[0][0]
+
+    issue_obj, _repo, _calls = _pi_agent_env(monkeypatch, _pi_process(0, ""), "")
+    run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+    assert "(no output)" in issue_obj.create_comment.call_args[0][0]
+
+
+def test_run_agent_pi_backend_creates_pr(monkeypatch):
+    issue_obj, _repo, _calls = _pi_agent_env(
+        monkeypatch,
+        _pi_process(0, '{"success": true, "summary": "implemented", "commit_message": "feat: pi"}'),
+        "a.py\n",
+    )
+    pushed = {}
+
+    def fake_apply_and_push(result, token, repository, profile, already_applied=False, verify=True):
+        pushed.update(result=dict(result), already_applied=already_applied, verify=verify)
+        return result["branch_name"], ["a.py"]
+
+    monkeypatch.setattr(agent, "apply_and_push", fake_apply_and_push)
+    monkeypatch.setattr(agent, "create_pr", lambda *a, **kw: "https://github.com/owner/repo/pull/2")
+
+    result = run_agent(gh_token="tk", repository="owner/repo", issue_number=1, llm_api_key="key")
+
+    assert result == {"skip": False, "reason": "", "pr_url": "https://github.com/owner/repo/pull/2"}
+    assert pushed["result"]["branch_name"] == "repokeeper/issue-1-pi"
+    assert pushed["result"]["commit_message"] == "feat: pi"
+    assert pushed["already_applied"] is False
+    assert pushed["verify"] is False
+    comment = issue_obj.create_comment.call_args[0][0]
+    assert "(Pi) finished implementation" in comment
+    assert "**Summary:** implemented" in comment
+
+
+def test_agent_module_entrypoint_runs_run_agent(monkeypatch):
+    import runpy
+
+    for name in (
+        "GITHUB_TOKEN", "REPOKEEPER_GITHUB_TOKEN", "GITHUB_REPOSITORY", "ISSUE_NUMBER",
+        "DEEPSEEK_API_KEY", "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ConfigError, match="Missing required configuration"):
+        runpy.run_module("repokeeper.agent", run_name="__main__")
+
+
+def test_parse_pi_result_uses_fenced_json_when_inline_candidate_is_invalid():
+    stdout = (
+        '{"success": true, "summary": unquoted}\n'
+        "```json\n{\"success\": true, \"summary\": \"from fence\"}\n```\n"
+    )
+
+    result = agent._parse_pi_result(stdout)
+
+    assert result["skip"] is False
+    assert result["summary"] == "from fence"
+
+
+@pytest.mark.parametrize("pr_number", [None, 7])
+def test_run_agent_issue_mode_when_pull_lookup_fails_or_returns_nothing(monkeypatch, pr_number):
+    issue_obj, repo_mock, _pr = _run_agent_env(monkeypatch, {"skip_keywords": ["feature"]})
+
+    def get_pull(number):
+        if number == 5:
+            raise RuntimeError("not a pull request")
+        return None
+
+    repo_mock.get_pull.side_effect = get_pull
+    monkeypatch.setattr(agent, "run_fix_pr", lambda *a, **kw: pytest.fail("fix mode must not run"))
+
+    result = run_agent(
+        gh_token="tk", repository="owner/repo", issue_number=5, pr_number=pr_number, llm_api_key="key"
+    )
+
+    assert result["reason"] == "Skip keyword: feature"
+    issue_obj.create_comment.assert_called_once()

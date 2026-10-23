@@ -518,7 +518,7 @@ def _repair_truncated_json(text: str) -> str | None:
     for open_ch in reversed(bracket_stack):
         if open_ch == "{":
             repaired += "}"
-        elif open_ch == "[":
+        elif open_ch == "[":  # pragma: no branch - the stack only ever holds "{" or "["
             repaired += "]"
 
     return repaired if repaired != text else None
@@ -552,7 +552,7 @@ def parse_llm_json(raw: str) -> dict[str, Any]:
         text = m.group(1).strip()
     elif text.startswith("```"):
         inner = text.split("```", 2)
-        if len(inner) >= 2:
+        if len(inner) >= 2:  # pragma: no branch - text starts with the delimiter
             candidate = inner[1]
             if candidate.startswith("json"):
                 candidate = candidate[4:]

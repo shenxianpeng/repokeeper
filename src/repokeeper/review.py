@@ -480,7 +480,7 @@ def call_llm_for_review(
                     f"Last error: {err}"
                 ) from err
 
-    raise LLMParseError("LLM JSON parsing failed")
+    raise LLMParseError("LLM JSON parsing failed")  # pragma: no cover - loop always returns or raises
 
 
 # ─── Format review comment ───────────────────────────────────────────────────

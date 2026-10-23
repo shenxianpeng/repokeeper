@@ -1157,3 +1157,395 @@ def test_generate_radar_summary_includes_issues_updated():
 
 def test_radar_label_is_repokeeper_radar():
     assert RADAR_LABEL == "repokeeper-radar"
+
+
+# ── Local scanning: non-matching items ───────────────────────────────────────
+
+
+def _issue_mock(number, title, body="", updated=None):
+    from datetime import timezone
+
+    issue = MagicMock()
+    issue.pull_request = None
+    issue.number = number
+    issue.title = title
+    issue.body = body
+    issue.html_url = f"https://github.com/owner/repo/issues/{number}"
+    issue.user.login = "alice"
+    issue.created_at = datetime.now(timezone.utc)
+    issue.updated_at = updated or datetime.now(timezone.utc)
+    return issue
+
+
+def test_scan_issues_ignores_issues_without_keyword_match():
+    mock_repo = MagicMock()
+    mock_repo.get_issues.return_value = [
+        _issue_mock(1, "Docs typo", "nothing relevant"),
+        _issue_mock(2, "Crash on start", "it crashes"),
+    ]
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+
+    hits = scan_issues(mock_gh, "owner/repo", ["crash"])
+
+    assert [h.number for h in hits] == [2]
+
+
+def test_scan_discussions_ignores_discussions_without_keyword_match():
+    from datetime import timezone
+
+    discussion = MagicMock()
+    discussion.number = 1
+    discussion.title = "Welcome"
+    discussion.body = "hello"
+    discussion.created_at = datetime.now(timezone.utc)
+    discussion.updated_at = datetime.now(timezone.utc)
+    mock_repo = MagicMock()
+    mock_repo.get_discussions.return_value = [discussion]
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+
+    assert scan_discussions(mock_gh, "owner/repo", ["crash"]) == []
+
+
+# ── Cross-repo scanning ──────────────────────────────────────────────────────
+
+
+def _search_issue(number, title, body="", repo_name="other/project", updated=None, user=True):
+    from datetime import timezone
+
+    issue = MagicMock()
+    issue.number = number
+    issue.title = title
+    issue.body = body
+    issue.html_url = f"https://github.com/{repo_name}/issues/{number}"
+    issue.user = MagicMock(login="bob") if user else None
+    issue.created_at = datetime.now(timezone.utc)
+    issue.updated_at = updated or datetime.now(timezone.utc)
+    issue.repository = MagicMock(full_name=repo_name) if repo_name else None
+    return issue
+
+
+def test_scan_global_issues_matches_keywords_and_metadata():
+    from datetime import timedelta, timezone
+
+    from repokeeper.radar import scan_global_issues
+
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    mock_gh = MagicMock()
+    mock_gh.search_issues.return_value = [
+        _search_issue(1, "myproject crashes", "stack trace"),
+        _search_issue(2, "unrelated", "nothing"),
+        _search_issue(3, "old crash", updated=old),
+        _search_issue(4, "crash without repo", repo_name="", user=False),
+        _search_issue(5, "crash beyond limit"),
+    ]
+
+    hits = scan_global_issues(
+        mock_gh,
+        '"myproject" is:issue',
+        ["crash"],
+        since=datetime.now(timezone.utc) - timedelta(days=1),
+        max_results=3,
+    )
+
+    # The stale issue (#3) is skipped without counting toward max_results.
+    assert [h.number for h in hits] == [1, 4]
+    assert hits[0].repo == "other/project"
+    assert hits[0].author == "bob"
+    assert hits[0].matched_keyword == "crash"
+    assert hits[1].repo == "unknown"
+    assert hits[1].author == "unknown"
+    assert hits[1].body == ""
+
+
+def test_scan_global_issues_without_keywords_includes_everything_and_handles_errors():
+    from repokeeper.radar import scan_global_issues
+
+    mock_gh = MagicMock()
+    mock_gh.search_issues.return_value = [_search_issue(1, "anything", None)]
+
+    hits = scan_global_issues(mock_gh, '"myproject"', [])
+
+    assert len(hits) == 1
+    assert hits[0].matched_keyword == '"myproject"'
+
+    mock_gh.search_issues.side_effect = RuntimeError("rate limited")
+    assert scan_global_issues(mock_gh, '"myproject"', []) == []
+
+
+def _discussion_node(number, title, body="", **overrides):
+    node = {
+        "number": number,
+        "title": title,
+        "body": body,
+        "url": f"https://github.com/other/project/discussions/{number}",
+        "createdAt": "2026-01-02T03:04:05Z",
+        "updatedAt": "2026-01-03T03:04:05Z",
+        "author": {"login": "carol"},
+        "repository": {"nameWithOwner": "other/project"},
+    }
+    node.update(overrides)
+    return node
+
+
+def test_scan_global_discussions_parses_graphql_nodes():
+    from datetime import timezone
+
+    from repokeeper.radar import scan_global_discussions
+
+    requester = MagicMock()
+    requester.graphql_query.return_value = {
+        "data": {
+            "search": {
+                "nodes": [
+                    None,
+                    _discussion_node(1, "myproject crash", "details"),
+                    _discussion_node(2, "unrelated", "nothing"),
+                    _discussion_node(3, "old crash", updatedAt="2025-01-01T00:00:00Z"),
+                    _discussion_node(
+                        4, "crash minimal", body=None, createdAt="", updatedAt=None,
+                        author=None, repository=None,
+                    ),
+                ]
+            }
+        }
+    }
+    mock_gh = MagicMock()
+    mock_gh._Github__requester = requester
+
+    hits = scan_global_discussions(
+        mock_gh,
+        '"myproject" type:discussion',
+        ["crash"],
+        since=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    assert [h.number for h in hits] == [1, 4]
+    assert hits[0].repo == "other/project"
+    assert hits[0].author == "carol"
+    assert hits[0].created_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    assert hits[1].repo == "unknown"
+    assert hits[1].author == "unknown"
+    assert hits[1].body == ""
+    variables = requester.graphql_query.call_args.kwargs["variables"]
+    assert variables == {"query": '"myproject" type:discussion', "first": 30}
+
+
+def test_scan_global_discussions_without_keywords_and_errors():
+    from repokeeper.radar import scan_global_discussions
+
+    requester = MagicMock()
+    requester.graphql_query.return_value = {
+        "data": {"search": {"nodes": [_discussion_node(1, "anything")]}}
+    }
+    mock_gh = MagicMock()
+    mock_gh._Github__requester = requester
+
+    hits = scan_global_discussions(mock_gh, '"myproject"', [])
+    assert len(hits) == 1
+    assert hits[0].matched_keyword == '"myproject"'
+
+    requester.graphql_query.side_effect = RuntimeError("graphql down")
+    assert scan_global_discussions(mock_gh, '"myproject"', []) == []
+
+
+# ── Notification channels ────────────────────────────────────────────────────
+
+
+def _actionable_report():
+    hit = _hit("bug", 0.9)
+    hit.action_needed = True
+    return RadarReport(
+        repo="owner/repo", scanned_at=datetime(2026, 1, 1), total_scanned=1, hits=[hit],
+    )
+
+
+def test_notify_maintainer_telegram_and_wechat(monkeypatch):
+    posts: list[tuple[str, dict]] = []
+
+    def fake_post(url, json=None, timeout=None):
+        posts.append((url, json))
+        return MagicMock(status_code=200)
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.delenv("RKP_TELEGRAM_CHAT_ID", raising=False)
+
+    result = notify_maintainer(
+        {"notifications": {"telegram": "123:bot-token", "wechat": "https://wechat.test/hook"}},
+        _actionable_report(),
+    )
+
+    assert result == {"telegram": True, "wechat": True}
+    assert posts[0][0] == "https://api.telegram.org/botbot-token/sendMessage"
+    assert posts[0][1]["chat_id"] == "123"
+    assert "RepoKeeper Radar" in posts[0][1]["text"]
+    assert posts[1][0] == "https://wechat.test/hook"
+    assert posts[1][1]["markdown"]["content"].startswith("## 🔭 RepoKeeper Radar")
+
+
+def test_send_telegram_reads_chat_id_from_env_and_reports_errors(monkeypatch):
+    from repokeeper.radar import _send_telegram
+
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured.update(json)
+        return MagicMock(status_code=403)
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setenv("RKP_TELEGRAM_CHAT_ID", "env-chat")
+
+    assert _send_telegram("plain-token", "hello") is False
+    assert captured["chat_id"] == "env-chat"
+
+    def failing_post(url, json=None, timeout=None):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr("requests.post", failing_post)
+    assert _send_telegram("plain-token", "hello") is False
+
+
+def test_send_wechat_reports_errors(monkeypatch):
+    from repokeeper.radar import _send_wechat
+
+    def failing_post(url, json=None, timeout=None):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr("requests.post", failing_post)
+
+    assert _send_wechat("https://wechat.test/hook", "t", "c") is False
+
+
+def test_send_email_reports_smtp_errors(monkeypatch):
+    import smtplib
+
+    from repokeeper.radar import _send_email
+
+    def failing_smtp(*args, **kwargs):
+        raise smtplib.SMTPException("refused")
+
+    monkeypatch.setattr(smtplib, "SMTP", failing_smtp)
+    monkeypatch.setenv("RKP_SMTP_USER", "user")
+    monkeypatch.setenv("RKP_SMTP_PASS", "pass")
+
+    assert _send_email("to@test", "subject", "body") is False
+
+
+# ── run_radar branches ───────────────────────────────────────────────────────
+
+
+def _classify_as_bug(hit, *args, **kwargs):
+    hit.category = "bug"
+    hit.confidence = 0.9
+    hit.action_needed = True
+    return hit
+
+
+def test_run_radar_cross_repo_mode_builds_queries(monkeypatch):
+    calls: dict[str, str] = {}
+
+    def fake_issues(gh, query, keywords, since=None):
+        calls["issues"] = query
+        return [_hit("", 0.0)]
+
+    def fake_discussions(gh, query, keywords, since=None):
+        calls["discussions"] = query
+        return []
+
+    monkeypatch.setattr("repokeeper.radar.scan_global_issues", fake_issues)
+    monkeypatch.setattr("repokeeper.radar.scan_global_discussions", fake_discussions)
+    monkeypatch.setattr("repokeeper.radar.classify_hit", _classify_as_bug)
+    monkeypatch.setattr(
+        "repokeeper.radar.generate_issue_draft",
+        lambda hit, *a, **kw: {"title": "Drafted", "labels": ["bug"]},
+    )
+    notified: list[RadarReport] = []
+    monkeypatch.setattr("repokeeper.radar.notify_maintainer", lambda p, r: notified.append(r))
+
+    report = run_radar(
+        MagicMock(), MagicMock(), "owner/project",
+        profile={"radar": {"cross_repo_search": True}, "agent": {"model": "m"}},
+    )
+
+    assert calls == {
+        "issues": '"project" is:issue is:open -repo:owner/project',
+        "discussions": '"project" type:discussion -repo:owner/project',
+    }
+    assert report.hits[0].suggested_title == "Drafted"
+    assert notified == [report]
+
+    run_radar(
+        MagicMock(), MagicMock(), "project",
+        profile={"radar": {"cross_repo_search": True, "cross_repo_query": "custom"}},
+    )
+    assert calls["issues"] == "custom is:issue is:open -repo:project"
+
+    run_radar(MagicMock(), MagicMock(), "project", profile={"radar": {"cross_repo_search": True}})
+    assert calls["issues"] == '"project" is:issue is:open -repo:project'
+
+
+def test_run_radar_auto_create_handles_skipped_and_failed_hits(monkeypatch):
+    hits = [_hit("", 0.0), _hit("", 0.0)]
+    hits[1].url = "https://example.test/2"
+    monkeypatch.setattr("repokeeper.radar.scan_issues", lambda *a, **kw: hits)
+    monkeypatch.setattr("repokeeper.radar.scan_discussions", lambda *a, **kw: [])
+    monkeypatch.setattr("repokeeper.radar.classify_hit", _classify_as_bug)
+
+    def fake_process(hit, gh_repo, llm, profile):
+        if hit.url.endswith("/1"):
+            return None
+        raise RuntimeError("github refused")
+
+    monkeypatch.setattr("repokeeper.radar._process_radar_hit", fake_process)
+    monkeypatch.setattr(
+        "repokeeper.radar.generate_issue_draft",
+        lambda hit, *a, **kw: {"title": "Fallback", "labels": ["needs-triage"]},
+    )
+    monkeypatch.setattr("repokeeper.radar.notify_maintainer", lambda p, r: {})
+
+    report = run_radar(
+        MagicMock(), MagicMock(), "owner/repo",
+        profile={"radar": {"keywords": ["crash"], "auto_create_issue": True}},
+    )
+
+    assert report.issues_created == []
+    assert report.issues_updated == []
+    assert hits[0].suggested_title == ""
+    assert hits[1].suggested_title == "Fallback"
+    assert hits[1].suggested_labels == ["needs-triage"]
+
+
+def test_run_radar_skips_notification_without_actionable_hits(monkeypatch):
+    monkeypatch.setattr("repokeeper.radar.scan_issues", lambda *a, **kw: [_hit("", 0.0)])
+    monkeypatch.setattr("repokeeper.radar.scan_discussions", lambda *a, **kw: [])
+
+    def classify_noise(hit, *args, **kwargs):
+        hit.category = "noise"
+        hit.confidence = 0.2
+        return hit
+
+    monkeypatch.setattr("repokeeper.radar.classify_hit", classify_noise)
+
+    def fail_notify(profile, report):
+        raise AssertionError("must not notify")
+
+    monkeypatch.setattr("repokeeper.radar.notify_maintainer", fail_notify)
+
+    report = run_radar(
+        MagicMock(), MagicMock(), "owner/repo", profile={"radar": {"keywords": ["crash"]}},
+    )
+
+    assert report.hits == []
+    assert len(report.noise) == 1
+
+
+def test_find_existing_radar_issue_skips_unrelated_issues():
+    unrelated = MagicMock()
+    unrelated.body = "no marker here"
+    unrelated.title = "Something else"
+    unrelated.number = 3
+    gh_repo = MagicMock()
+    gh_repo.get_issues.return_value = [unrelated]
+
+    assert _find_existing_radar_issue(gh_repo, "https://example.test/1", "Crash") is None

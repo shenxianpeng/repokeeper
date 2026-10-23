@@ -202,3 +202,24 @@ def test_validate_rejects_bad_change_mode():
         "tone": {"style": "friendly"},
     })
     assert any("change_mode" in i for i in issues)
+
+
+def test_validate_profile_backend_and_release_categories():
+    issues = validate_profile({
+        "maintainer": "alice",
+        "agent": {"backend": "cloud"},
+        "release": {"categories": "feat"},
+    })
+
+    assert "agent.backend must be one of {'native', 'pi'}" in issues
+    assert "release.categories must be a list" in issues
+
+
+def test_validate_profile_accepts_pi_backend_and_null_categories():
+    issues = validate_profile({
+        "maintainer": "alice",
+        "agent": {"backend": "pi"},
+        "release": {"categories": None},
+    })
+
+    assert not any("backend" in issue or "categories" in issue for issue in issues)

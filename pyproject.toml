@@ -43,8 +43,9 @@ dev = [
   "types-requests",
 ]
 docs = [
-  "mkdocs-ng",
-  "mkdocs-ng-material",
+  "mkdocs-ng>=1.11.0",
+  "mkdocs-sumi>=0.2.1",
+  "pymdown-extensions>=10.16",
 ]
 anthropic = [
   "anthropic>=0.30",

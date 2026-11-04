@@ -6,43 +6,10 @@ repo_name: shenxianpeng/repokeeper
 edit_uri: edit/main/docs/
 
 theme:
-  name: material
+  name: sumi
+  accent: "#1f6feb"
   favicon: assets/favicon.svg
   logo: assets/logo.svg
-  font:
-    text: Space Grotesk
-    code: JetBrains Mono
-  palette:
-    - scheme: slate
-      primary: custom
-      accent: custom
-      toggle:
-        icon: material/brightness-7
-        name: Switch to light mode
-    - scheme: default
-      primary: custom
-      accent: custom
-      toggle:
-        icon: material/brightness-4
-        name: Switch to dark mode
-  features:
-    - navigation.instant
-    - navigation.instant.progress
-    - navigation.top
-    - navigation.tabs
-    - navigation.tabs.sticky
-    - navigation.sections
-    - navigation.footer
-    - content.code.copy
-    - content.code.annotate
-    - search.highlight
-    - search.suggest
-    - toc.follow
-  icon:
-    repo: fontawesome/brands/github
-
-extra_css:
-  - stylesheets/extra.css
 
 nav:
   - Home: index.md
@@ -70,6 +37,7 @@ nav:
 
 plugins:
   - search
+  - sumi
 
 markdown_extensions:
   - admonition
@@ -80,11 +48,7 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets:
       base_path: [docs, .]
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
@@ -96,9 +60,9 @@ markdown_extensions:
 
 extra:
   social:
-    - icon: fontawesome/brands/github
+    - icon: brand-github
       link: https://github.com/shenxianpeng/repokeeper
-    - icon: fontawesome/brands/python
+    - icon: brand-python
       link: https://pypi.org/project/repokeeper/
   generator: false
 
